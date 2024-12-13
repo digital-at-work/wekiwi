@@ -1,0 +1,6 @@
+name: kiwi-ai-services-2
+channels:
+  - conda-forge
+dependencies:
+  - python~=3.12.0
+  - poetry~=1.7.1

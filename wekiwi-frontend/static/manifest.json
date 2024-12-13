@@ -1,0 +1,15 @@
+{
+	"background_color": "#ffffff",
+	"theme_color": "#3d8b3d",
+	"name": "WeKiwi - Knowledge Plattform",
+	"short_name": "WeKiwi",
+	"display": "minimal-ui",
+	"start_url": "/",
+	"icons": [
+		{
+			"src": "logo-256.png",
+			"sizes": "256x256",
+			"type": "image/png"
+		}
+	]
+}

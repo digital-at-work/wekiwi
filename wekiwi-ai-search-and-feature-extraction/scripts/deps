@@ -1,0 +1,7 @@
+#!/usr/bin/env bash
+
+# Run non-python dependencies in Docker compose. This makes it so you can
+# run Python locally but have things like Postgres be more ephemeral.
+
+# Name of the file is short and cryptic to make it faster to type.
+docker compose -f docker-compose.yml $@

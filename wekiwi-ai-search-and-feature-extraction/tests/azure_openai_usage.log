@@ -1,0 +1,1 @@
+Giving up request(...) after 1 tries (google.api_core.exceptions.FailedPrecondition: 400 User location is not supported for the API use without a billing account linked.)

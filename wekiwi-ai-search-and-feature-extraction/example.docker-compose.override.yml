@@ -1,0 +1,44 @@
+version: "3.9"
+
+# Example docker-compose override for adding wekiwis AI backend service
+# This is an example file. Replace placeholders and configure according to your environment.
+
+services:
+  server:
+    # Depends on Milvus being healthy
+    depends_on:
+      milvus:
+        condition: service_healthy
+    build: .
+    image: digitalatwork/wekiwi-ai-search-and-feature-extraction:v1_4-cuda
+    environment:
+      # Replace these with your actual environment variables
+      - HOST=0.0.0.0
+      - PORT=8000
+      - DIRECTUS_ADMIN_KEY=example-directus-key
+      - DIRECTUS_URL=https://example-directus-url.com
+      - API_SECRET=example-api-secret
+      - MILVUSDB_HOST=milvus
+      - LOG_LEVEL=DEBUG
+      - POSTGRES_DB_NAME=example-db-name
+      - POSTGRES_DB_USER=example-db-user
+      - POSTGRES_DB_PASSWORD=example-db-password
+      - RERANKING_DEVICE=cuda
+      - BGEM3_EMBEDDING_DEVICE=cuda
+      - SENTENCE_TRANSFORMERS_DEVICE=cuda
+    ports:
+      # Map the service port to the host
+      - "8058:8000"
+    healthcheck:
+      # Verifies if the server is healthy
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+    restart: always
+    volumes:
+      # Update paths for application, SQL scripts, and models
+      - "./app:/app/app"
+      - "./sql:/app/sql"
+      - "./models:/app/models"

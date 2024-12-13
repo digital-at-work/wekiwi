@@ -1,0 +1,22 @@
+FROM mambaorg/micromamba:jammy-cuda-12.5.0
+# WITHOUT CUDA: mambaorg/micromamba:bullseye
+
+# Needed for asyncpg
+USER root
+RUN apt-get update && apt-get install -y gcc curl
+USER $MAMBA_USER
+
+WORKDIR "/app"
+
+COPY --chown=$MAMBA_USER:$MAMBA_USER environment.yml /tmp/environment.yml
+RUN micromamba install -y -n base -f /tmp/environment.yml && \
+    micromamba clean --all --yes
+
+COPY pyproject.toml ./
+COPY poetry.lock ./
+COPY app ./app
+
+RUN micromamba run /opt/conda/bin/poetry config virtualenvs.create false \
+    && micromamba run /opt/conda/bin/poetry install --no-dev --no-interaction
+
+CMD ["python", "-m", "app"]
