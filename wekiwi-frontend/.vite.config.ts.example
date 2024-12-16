@@ -1,0 +1,157 @@
+import { sveltekit } from '@sveltejs/kit/vite';
+
+import type { KIT_ROUTES } from '$lib/ROUTES';
+import { kitRoutes } from 'vite-plugin-kit-routes';
+
+import { purgeCss } from 'vite-plugin-tailwind-purgecss';
+import { defineConfig, loadEnv } from 'vite';
+import { svelteInspector } from '@sveltejs/vite-plugin-svelte-inspector';
+import { visualizer } from 'rollup-plugin-visualizer';
+
+import mkcert from 'vite-plugin-mkcert';
+import type { ServerOptions } from 'https';
+
+export default defineConfig(() => {
+    // Load environment variables based on NODE_ENV
+    const env = loadEnv(process.env.NODE_ENV || 'development', process.cwd());
+
+    // Determine if we're in production or staging
+    const isProduction = process.env.NODE_ENV === 'production';
+    const isStaging = process.env.NODE_ENV === 'staging';
+
+    // Debugging: log the NODE_ENV to ensure it's being read correctly
+    console.log('NODE_ENV:', process.env.NODE_ENV);
+
+    // Debugging: log the environment determination
+    console.log('isProduction:', isProduction);
+    console.log('isStaging:', isStaging);
+
+    let FRONTEND_URL: string;
+
+    switch (true) {
+        case isProduction:
+            FRONTEND_URL = `${env.PUBLIC_FRONTEND_URL ?? 'https://example.com'}`;
+            break;
+        case isStaging:
+            FRONTEND_URL = `${env.PUBLIC_FRONTEND_URL ?? 'https://staging.example.com'}`;
+            break;
+        default:
+            FRONTEND_URL = `${env.PUBLIC_FRONTEND_URL ?? 'http://localhost'}`;
+            break;
+    }
+
+    const FRONTEND_PORT = `${env.PUBLIC_FRONTEND_PORT ?? 3000}`;
+    const AI_SERVER_URL = `${env.PUBLIC_AI_SERVER_URL ?? 'http://localhost'}`;
+    const AI_SERVER_PORT = `${env.PUBLIC_AI_SERVER_PORT ?? '8080'}`;
+    const AI_PROXY = isProduction || isStaging ? `${FRONTEND_URL}/aiproxy` : `${FRONTEND_URL}:${FRONTEND_PORT}/aiproxy`;
+    const CMS_PROXY = isProduction || isStaging ? `${FRONTEND_URL}/cmsproxy` : `${FRONTEND_URL}:${FRONTEND_PORT}/cmsproxy`;
+    const ALEPH_ALPHA_PROXY = isProduction || isStaging ? `${FRONTEND_URL}/aleph_alpha_proxy` : `${FRONTEND_URL}:${FRONTEND_PORT}/aleph_alpha_proxy`;
+
+    return {
+        server: {
+            https: isProduction || isStaging ? undefined : mkcert() as ServerOptions,
+            proxy: {},
+            host: 'localhost',
+            port: +FRONTEND_PORT,
+        },
+        plugins: [
+            isProduction ? [] : mkcert(),
+            sveltekit(),
+            purgeCss(),
+            kitRoutes<KIT_ROUTES>({
+                PAGES: {
+                    "/app/feed": {
+                        explicit_search_params: {
+                            circles: { type: 'string' },
+                            type: { type: 'string', default: "'text'" },
+                            search: { type: 'string' },
+                            c_id: { type: 'string' },
+                            usercreated: { type: 'string' },
+                            userupdated: { type: 'string' },
+                            datecreated1: { type: 'string' },
+                            datelogic1: { type: 'string' },
+                            datecreated2: { type: 'string' },
+                            dateupdated1: { type: 'string' },
+                            datelogic2: { type: 'string' },
+                            dateupdated2: { type: 'string' },
+                            sort1: { type: 'string', default: "'-date_created'" },
+                            sort2: { type: 'string' },
+                            offset: { type: 'number', default: 0 },
+                            ai: { type: 'string', default: "'false'" },
+                        },
+                    },
+                    "/app/[content_id=integer]": {
+                        params: {
+                            content_id: { type: 'string' }
+                        },
+                        explicit_search_params: {
+                            circles: { type: 'string' },
+                        },
+                    },
+                    "/app/content_create": {
+                        explicit_search_params: {
+                            circles: { type: 'string' },
+                            c_id: { type: 'string' },
+                        },
+                    },
+                    "/auth/sign-in": {
+                        explicit_search_params: {
+                            inv: { type: 'string' },
+                            redirectedFrom: { type: 'string' }
+                        }
+                    },
+                    "/auth/sign-up": {
+                        explicit_search_params: {
+                            inv: { type: 'string' }
+                        }
+                    }
+                },
+                ACTIONS: {
+                    "createContent /app/content_create": {
+                        explicit_search_params: {
+                            type: { type: 'string', default: "'text'", required: true },
+                            c_id: { type: 'string', required: true },
+                            parent_id: { type: 'string' },
+                        },
+                    },
+                    "updateContent /app/[content_id=integer]": {
+                        params: { content_id: { type: 'string' } },
+                        explicit_search_params: {
+                            c_id: { type: 'string', required: true },
+                            parent_id: { type: 'string' },
+                        },
+                    },
+                    "deleteContent /app/[content_id=integer]": {
+                        params: { content_id: { type: 'string' } },
+                    },
+                    "contentReaction /app/[content_id=integer]": {
+                        params: { content_id: { type: 'string' } },
+                        explicit_search_params: {
+                            reaction_type: { type: 'string', required: true }
+                        }
+                    },
+                    "shareContent /app/[content_id=integer]": {
+                        params: { content_id: { type: 'string' } },
+                        explicit_search_params: {
+                            circles: { type: 'string' },
+                        },
+                    },
+                },
+                LINKS: {
+                    ai: `${AI_SERVER_URL}:${AI_SERVER_PORT}[ai_slug]`,
+                    ai_proxy: `${AI_PROXY}[ai_slug]`,
+                    cms_proxy: `${CMS_PROXY}[cms_slug]`,
+                    cms_proxy_images: `${CMS_PROXY}/assets/[image_id]?key=[display_config]`,
+                    cms_proxy_files: `${CMS_PROXY}/assets/[file_id]?download`,
+                    aleph_alpha_proxy: `${ALEPH_ALPHA_PROXY}[aleph_alpha_slug]`,
+                },
+                format: 'route(path)'
+            }),
+            svelteInspector(),
+            visualizer({
+                emitFile: true,
+                filename: "stats.html",
+            })
+        ],
+    }
+});

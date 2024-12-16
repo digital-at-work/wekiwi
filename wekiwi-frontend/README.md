@@ -7,6 +7,14 @@ required setup:
 - change etc hosts file with the following ssh command: echo localhost www.wekiwi.de" | sudo tee -a /etc/hosts
     this re-routes url calls for www.wekiwi.de to localhost. 
 ```
+## Using the Example Vite Config
+
+To use the example Vite configuration for development or customization:
+
+1. Copy the `vite.config.example.ts` file.
+2. Rename it to `vite.config.ts`.
+3. Update the placeholders with your project-specific details.
+
 ## 
 
 To run in dev mode:

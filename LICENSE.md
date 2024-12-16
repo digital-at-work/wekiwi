@@ -1,3 +1,12 @@
+                    Copyright (c) 2024 digital@work GmbH
+
+Portions of this software are licensed as follows:
+
+- All content that resides under the "wekiwi-ai-search-and-feature-extraction" and "wekiwi-frontend" directories of this repository is licensed under the "AGPLv3" license as defined below.
+- All content located in the "patron" directory of this repository is licensed under the we:kiwi Patron Edition license, which is available in the patron/LICENSE.md file.
+- All third-party components included in the we:kiwi Software are licensed under their original licenses, as specified by their respective owners.
+- Content outside the directories mentioned above is not licensed under the AGPLv3 license.
+
                     GNU AFFERO GENERAL PUBLIC LICENSE
                        Version 3, 19 November 2007
 
