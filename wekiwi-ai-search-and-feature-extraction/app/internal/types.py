@@ -2,7 +2,7 @@
 # by digital@work GmbH (2024). This file is part of wekiwi.
 # See the LICENSE file in the project root or https://www.gnu.org/licenses/agpl-3.0.html for details.
 
-from typing import List, Optional, Literal
+from typing import List, Optional, Literal, Any # Added Any for potential future use
 from pydantic import BaseModel, Field, field_validator
 
 from datetime import datetime
@@ -36,6 +36,17 @@ class ContentValidated(ContentBase):
     # Overwrite None with default values
     @field_validator('file_id', 'summary', 'text', 'title', 'user_created', 'user_updated', mode='before')
     def set_default_str(cls, v):
+        # Handle XML/ElementTree objects
+        if v is not None and hasattr(v, 'getroot'):
+            try:
+                from lxml import etree
+                from loguru import logger
+                logger.warning(f"Converting lxml.etree._ElementTree to string in ContentValidated")
+                return etree.tostring(v, encoding='unicode', method='text')
+            except ImportError:
+                from loguru import logger
+                logger.error("lxml module not found but XML object detected")
+                return str(v)
         return v or ""
     @field_validator('parent_id', mode='before')
     def set_default_int(cls, v):
@@ -78,5 +89,37 @@ class ContentOptional(ContentBase):
     user_updated: Optional[str] = None
     topics: Optional[List[str]] = None
     keywords: Optional[List[str]] = None
+    
+    # Add XML handling validator for ContentOptional as well
+    @field_validator('text', 'title', 'summary', mode='before')
+    def convert_xml_to_string(cls, v):
+        # Handle XML/ElementTree objects
+        if v is not None and hasattr(v, 'getroot'):
+            try:
+                from lxml import etree
+                from loguru import logger
+                logger.warning(f"Converting lxml.etree._ElementTree to string in ContentOptional")
+                return etree.tostring(v, encoding='unicode', method='text')
+            except ImportError:
+                from loguru import logger
+                logger.error("lxml module not found but XML object detected")
+                return str(v)
+        return v
 
 
+# --- Added for PDF Parsing Flow ---
+class PdfParseTriggerPayload(BaseModel):
+    directus_file_id: str = Field(..., description="UUID of the uploaded PDF file in Directus")
+    parent_content_id: int = Field(..., description="Content ID of the parent item to reply to")
+    user_created_id: str = Field(..., description="UUID of the user who created the content")
+    company_id: int = Field(..., description="Company ID associated with the content")
+    circle_ids: List[int] = Field(..., description="List of circle IDs associated with the content")
+    document_content_id: Optional[int] = Field(None, description="Content ID of the document item itself") # Optional, but potentially useful
+    title: Optional[str] = Field(None, description="Title of the PDF document to use for the reply")
+
+# --- Added for Direct PDF Upload Flow ---
+class DirectPdfUploadRequest(BaseModel):
+    user_id: str = Field(..., description="UUID of the user uploading the PDF")
+    company_id: Optional[int] = Field(None, description="Company ID associated with the content (Optional if fetched from Directus)")
+    circle_ids: Optional[List[int]] = Field(None, description="List of circle IDs associated with the content (Optional if fetched from Directus)")
+# --- End Added Section ---

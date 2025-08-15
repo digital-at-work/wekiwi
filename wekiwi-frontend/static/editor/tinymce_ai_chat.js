@@ -5,7 +5,7 @@ tinymce.PluginManager.add('chatPlugin', function (editor) {
     const openDialog = function () {
       const PROMPTS = chatPlugin.prompts
         ? chatPlugin.prompts.map((prompt) => {
-          return { text: prompt, value: `You are a HELPFUL assistant that responds in GERMAN (unless specified differently). You STRICTLY complete the TASK based on the INPUT (CONSIZE). TASK: ${prompt} INPUT: ` }
+          return { text: prompt, value: `You are a HELPFUL assistant that responds in GERMAN (unless specified differently). You STRICTLY complete the TASK based on the INPUT (CONCISE). TASK: ${prompt} INPUT: ` }
         })
         : []
       PROMPTS.unshift({ text: 'Custom Prompt', value: '' })
@@ -60,8 +60,7 @@ tinymce.PluginManager.add('chatPlugin', function (editor) {
           chatPlugin.getResponse(prompt)
             .then((res) => res.json())
             .then((data) => {
-              const reply = data.completions[0].completion
-              editor.insertContent(reply)
+              editor.insertContent(data.response)
               api.close()
             })
             .catch((error) => {

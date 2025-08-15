@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { createEventDispatcher } from 'svelte';
+	import { createEventDispatcher, onDestroy, onMount } from 'svelte';
 
 	import { base } from '$app/paths';
 	import type { PartialUser } from '$lib/directus/directus.types';
@@ -16,28 +16,29 @@
 	export let inline: boolean = false;
 	export let readonly: boolean = true;
 	export let circleUsers: PartialUser[];
-	export let mentions: ({ id: number; username: string } |undefined)[] = [];
+	export let mentions: { id: number; username: string }[] = [];
 	export let height: number = 400;
 	export let minHeight: number = 200;
 	export let minWidth: number = 150;
 	export let cssClasses: string = 'tinymce-wrapper';
 	export let placeholder: string = `Nutze Formatierungsoptionen, um Deinen Beitrag zu gestalten.`;
-	export let editorMenuBar: string = 'edit view insert format tools help'; //removed: 'table'
-	export let editorToolBar: string = 'chatPlugin | audioPlugin | undo redo | bold italic underline | align numlist bullist checklist | link emoticons codesample |  strikethrough blocks fontfamily fontsize  | lineheight | forecolor backcolor removeformat | fullscreen | print | anchor accordion accordionremove'
-    //removed: table, image, media, indent, outdent
-	
+	export let editorMenuBar: string = 'edit view insert format tools help';
+	export let editorToolBar: string =
+		'chatPlugin | audioPlugin | undo redo | bold italic underline | align numlist bullist checklist | link emoticons codesample | strikethrough blocks fontfamily fontsize | lineheight | forecolor backcolor removeformat | fullscreen | print | anchor accordion accordionremove';
+
 	const directusClient = getDirectusClientProxy();
 
-	async function imageUploadHandler(blobInfo: any, progress: any) {
+	// API key is now handled server-side in the proxy
 
+	async function imageUploadHandler(blobInfo: any, progress: any) {
 		const formData = new FormData();
 		formData.append('file', blobInfo.blob(), blobInfo.filename());
 
 		try {
 			const response = await directusClient.request(uploadFiles(formData));
 			progress(100);
-
-			return { location: route('cms_proxy', { cms_slug: `/assets/${response.id}` }) }; 
+			return { location: route('cms_proxy', { cms_slug: `/assets/${response.id}` }) };
+			return { location: route('cms_proxy', { cms_slug: `/assets/${response.id}` }) };
 		} catch (error) {
 			return Promise.reject({
 				message: (error as any).message || 'Image upload failed',
@@ -46,10 +47,8 @@
 		}
 	}
 
-
 	const dispatch = createEventDispatcher();
 
-	//TODO: use directus sdk -> implement user templates in directus
 	const advtemplate_templates = [
 		{
 			title: 'Schnelle Antworten',
@@ -102,9 +101,14 @@
 			]
 		}
 	];
+	//@ts-ignore
+	let editorInstance;
+	let editorInitialized = false;
 
+	// Keep track of our specific instance ID
+	const editorId = `tinymce-${Math.random().toString(36).substring(2, 15)}`;
 
-
+	// Add init options to ensure proper cleanup
 	const conf = {
 		plugins: [
 			'advlist',
@@ -129,7 +133,6 @@
 			'accordion',
 			'advtemplate'
 		],
-		license_key: 'gpl',
 		menubar: editorMenuBar,
 		toolbar: editorToolBar,
 		image_advtab: true,
@@ -160,9 +163,7 @@
 		toolbar_mode: 'sliding',
 		contextmenu: 'link',
 		placeholder: placeholder,
-		//skin: 'oxide', //useDarkMode ? 'oxide-dark' : 'oxide',
 		external_plugins: {
-			// die Plugins liegen unter static (von vite gehostet)
 			chatPlugin: `${base}/editor/tinymce_ai_chat.js`,
 			audioPlugin: `${base}/editor/tinymce_ai_audio.min.js`,
 			mentionPlugin: `${base}/editor/tinymce_mentions.js`
@@ -171,30 +172,29 @@
 			mentionsList: circleUsers || [{ username: '', first_name: '', last_name: '' }],
 			mentionsFilterOption(targetText: string, user: PartialUser) {
 				const { username, first_name, last_name } = user;
+				const lowerTarget = targetText.toLowerCase();
 				return [username, first_name, last_name].some(
-					(property) => property && property.includes(targetText)
+					(property) => property && property.toLowerCase().includes(lowerTarget)
 				);
 			}
 		},
 		chatPlugin: {
 			getResponse: async function getResponseFromchatPlugin(prompt: string) {
 				const requestBody = {
-					//TODO: this should be handled on the server
-					model: "luminous-supreme-control",
+					model: 'gemma3:27b',
 					prompt,
-					maximum_tokens: 200,
-					temperature: 0.1,
-					presence_penalty: 1.1, // Penalty for generating already present tokens
-					frequency_penalty: 1.5, // Penalty for generating frequently occurring tokens
+					stream: false
 				};
-				return fetch(route('aleph_alpha_proxy', { aleph_alpha_slug: '/complete'}), {
+				const headers: HeadersInit = {
+					'Content-Type': 'application/json'
+				};
+				// API key is now handled server-side in the proxy
+				const response = await fetch(route('ollama_proxy', { ollama_slug: 'api/generate' }), {
 					method: 'POST',
-					headers: {
-						'Content-Type': 'application/json',
-						'Accept': 'application/json'
-					},
+					headers,
 					body: JSON.stringify(requestBody)
 				});
+				return response;
 			},
 			prompts: [
 				'Fasse den Text zusammen',
@@ -219,7 +219,6 @@
 				formData.append('audio', audioBlob);
 
 				try {
-					//TODO: implement and fetch from AI endpoint
 					const response = await fetch('/audio=https://api.com/transcribe', {
 						method: 'POST',
 						body: formData
@@ -231,120 +230,166 @@
 				}
 			}
 		},
+		menu: {
+			insert: { title: 'Insert', items: 'link emoticons codesample accordion hr template charmap' }
+		},
+		entity_encoding: 'named',
+		valid_elements: `
+			details[*],summary[*],p[style|align],strong/b,em/i,strike,u,sub,sup,code,codesample,pre,blockquote[style],h1,h2,h3,h4,h5,h6,
+			ul,ol,li[style],br,span[style|class],
+			img[src|alt|width|height|class|style|title|align|border|hspace|vspace|data-*],
+			div[style|class],hr,align,caption
+		`,
+		extended_valid_elements: 'a[href|target|rel|title|class|style|id|data-*]',
+		valid_styles: {
+			'*': `color,font-size,font-family,font-weight,font-style,text-align,text-decoration,
+				  background-color,border,border-radius,padding,margin,line-height,
+				  width,height,max-width,max-height,vertical-align,white-space`,
+			img: 'width,height,max-width,max-height,border,border-radius,vertical-align,hspace,vspace'
+		},
+		invalid_elements: 'table,thead,tbody,tfoot,tr,td,th',
+		selector: `#${editorId}`,
+		//@ts-ignore
+		setup: (editor) => {
+			// Add cleanup handler
+			editor.on('remove', () => {
+				editor.off('mentionSelected', boundMentionSelected);
+				editor.off('mentionDeleted', boundMentionDeleted);
+			});
 
-	//removed: table, image, media
-	menu: {
-  		insert: { title: 'Insert', items: 'link emoticons codesample accordion hr template charmap' } 
-	},
+			editor.on('init', () => {
+				editorInitialized = true;
+			});
+		},
+		//@ts-ignore
+		init_instance_callback: (editor) => {
+			editorInstance = editor;
+		},
+		//@ts-ignore
+		remove_instance_callback: (editor) => {
+			// Cleanup callback
+		}
+	} as any;
+	//@ts-ignore
+	function handleMentionSelected(e) {
+		mentions = [...mentions, e.detail];
+		dispatch('mentionsChange', mentions);
+		console.log('Mention selected:', e.detail); // Debugging hinzufügen
+	}
+	//@ts-ignore
+	function handleMentionDeleted(e) {
+		mentions = mentions.filter((mention) => mention && mention.username !== e.detail.username);
+		dispatch('mentionsChange', mentions);
+		console.log('Mention deleted:', e.detail); // Debugging hinzufügen
+	}
 
-	entity_encoding: 'named', 
+	const boundMentionSelected = handleMentionSelected.bind(null);
+	const boundMentionDeleted = handleMentionDeleted.bind(null);
 
-	// Add valid_elements and valid_styles configurations. If you want to allow everything for testing purpose add a wildcard: *[*]
-	valid_elements: `
-		details[*],summary[*],p[style|align],strong/b,em/i,strike,u,sub,sup,code,codesample,pre,blockquote[style],h1,h2,h3,h4,h5,h6,
-		ul,ol,li[style],br,span[style|class],
-		img[src|alt|width|height|class|style|title|align|border|hspace|vspace|data-*],
-		div[style|class],hr,align,caption
-	`, 
+	//@ts-ignore
+	function handleInit(e) {
+		editorInstance = e.detail.editor;
 
-	extended_valid_elements: 'a[href|target|rel|title|class|style|id|data-*]'
-	,
+		// Remove any existing handlers first
+		editorInstance.off('mentionSelected', boundMentionSelected);
+		editorInstance.off('mentionDeleted', boundMentionDeleted);
 
- 	valid_styles: {
-  		'*':	`color,font-size,font-family,font-weight,font-style,text-align,text-decoration,
-        		background-color,border,border-radius,padding,margin,line-height,
-        		width,height,max-width,max-height,vertical-align,white-space`,
-  		'img': 'width,height,max-width,max-height,border,border-radius,vertical-align,hspace,vspace',
-  	//	'table': 'width,height,border,border-collapse,border-spacing,background-color',
-  	//	'tr': 'height,background-color',
-  	//	'td,th': 'width,height,border,background-color,text-align,vertical-align,padding'
-	}, 
+		// Add new handlers
+		editorInstance.on('mentionSelected', boundMentionSelected);
+		editorInstance.on('mentionDeleted', boundMentionDeleted);
+	}
 
-	//tables need to be debugged before declaring them valid
-	invalid_elements: 'table,thead,tbody,tfoot,tr,td,th',
-}
-;
+	onDestroy(() => {
+		try {
+			//@ts-ignore
+			if (editorInstance?.initialized) {
+				// Remove event listeners
+				editorInstance.off('mentionSelected', boundMentionSelected);
+				editorInstance.off('mentionDeleted', boundMentionDeleted);
+
+				// Remove the editor instance using TinyMCE's global API
+				if (window.tinymce) {
+					window.tinymce.remove(`#${editorId}`);
+				}
+				editorInstance = null;
+			}
+		} catch (e) {
+			console.error(`Error cleaning up TinyMCE instance:`, e);
+		}
+	});
 </script>
 
-<!-- Bundle liegt unter static (von vite gehostet) -->
-
 <Editor
+	id={editorId}
 	scriptSrc={`${base}/editor/tinymce.min.js`}
 	bind:cssClass={cssClasses}
 	bind:text={textContent}
 	bind:value={htmlContent}
 	bind:disabled={readonly}
-	on:mentionSelected={(e) => {
-		e.stopPropagation();
-		mentions = [...mentions, e.detail];
-		console.log('mentionSelected', e.detail.username);
-	}}
-	on:mentionDeleted={(e) => {
-		e.stopPropagation();
-		mentions = mentions.filter((mention) => mention && mention.username !== e.detail.username);
-		console.log('mentionDeleted', e.detail.username);
-	}}
-	on:blur={()=> {dispatch('blur')}}
-	on:input={()=> {dispatch('input')}}
+	on:init={handleInit}
+	on:blur={() => dispatch('blur')}
+	on:input={() => dispatch('input')}
+	on:mentionSelected={handleMentionSelected}
+	on:mentionDeleted={handleMentionDeleted}
+	on:blur={() => dispatch('blur')}
+	on:input={() => dispatch('input')}
 	{inline}
 	{conf}
+	licenseKey="gpl"
 />
 
 <style>
-	/*! purgecss start ignore */
 	:global(.oa-tinymce-mentions-container) {
 		position: absolute;
 		margin: 0;
 		padding: 0;
-		background: #fff;
+		background-color: #ffffff !important;
 		border-radius: 4px;
 		width: 200px;
 		z-index: 9999 !important;
 		box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
 		overflow: auto;
 	}
+
 	:global(.oa-tinymce-mentions-list) {
 		list-style: none;
 		margin: 0;
 		padding: 4px 0;
+		background-color: #ffffff;
+		background-color: #ffffff;
 		max-height: 230px;
 		box-sizing: border-box;
 	}
-	:global(.oa-tinymce-mentions-item) {
+
+	:global(.oa-tinymce-mention-item) {
 		white-space: nowrap;
 		text-overflow: ellipsis;
 		overflow: hidden;
 		cursor: pointer;
 		margin: 0;
 		padding: 9px 16px 9px 12px;
-		color: rgba(0, 0, 0, 0.65);
+		color: #000000;
 		font-size: 14px;
 		line-height: 22px;
 		transition: all linear 0.15s;
+		background-color: #ffffff;
 	}
-	:global(.oa-tinymce-mentions-item:hover) {
-		background-color: rgba(0, 0, 0, 0.06);
-		color: #2f68b4;
-	}
-	:global(._disabled) {
-		background-color: unset;
-		color: rgba(0, 0, 0, 0.25);
-		pointer-events: none;
-	}
-	:global(._disabled:hover) {
-		background-color: unset;
-		color: rgba(0, 0, 0, 0.25);
-		pointer-events: none;
-	}
-	:global(.oa-tinymce-mentions-item-active) {
-		background-color: rgba(0, 0, 0, 0.06);
+
+	:global(.oa-tinymce-mention-item:hover) {
+		background-color: rgba(0, 0, 0, 0.1);
 		color: #4eb42f;
 	}
+
+	:global(.oa-tinymce-mention-item-active) {
+		background-color: rgba(0, 0, 0, 0.1);
+		color: #4eb42f;
+	}
+
 	:global(.remind-user) {
 		color: #2f68b4;
 	}
+
 	:global(.tox-statusbar__right-container) {
 		display: none !important;
 	}
-	/*! purgecss end ignore */
 </style>

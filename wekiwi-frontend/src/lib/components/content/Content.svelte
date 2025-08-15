@@ -1,13 +1,16 @@
 <script lang="ts">
 	import { page } from '$app/stores';
 
-	import { createEventDispatcher } from 'svelte';
+	import { createEventDispatcher, onMount } from 'svelte';
 
 	import { enhance as svelteenhance } from '$app/forms';
 
 	import { route } from '$lib/ROUTES';
 
 	import { Pencil, Check, X, Trash2, Download } from 'lucide-svelte';
+
+	// Import marked for markdown parsing
+	import { marked } from 'marked';
 
 	import { ConicGradient, Avatar } from '@skeletonlabs/skeleton';
 
@@ -40,7 +43,6 @@
 	const { modifyContent } = getStateContext();
 
 	const dispatch = createEventDispatcher();
-
 	const superform = superForm<Infer<typeof contentEditSchema>>(contentEditForm, {
 		id: `${content.content_id}`,
 		dataType: 'json',
@@ -80,11 +82,60 @@
 	$form.circles = content_circles as number[];
 	$form.text = content?.text || '';
 	$form.title = content?.title || '';
+	$form.child_ids = content?.child_id?.map((child) => ({
+		content_id: child.content_id,
+		attachment_ids: Array.isArray(child.child_id)
+			? child.child_id.map((attachment: { content_id: number }) => attachment.content_id)
+			: []
+	}))
+
+	// Handle mentions data type conversion
+	let mentions: { id: number; username: string; }[] = [];
+	$: {
+		if (typeof $form.mentions === "string") {
+			try {
+				const parsed = JSON.parse($form.mentions);
+				if (Array.isArray(parsed)) {
+					mentions = parsed
+						.filter(item => item && typeof item === 'object' && 'id' in item && 'username' in item)
+						.map(item => ({ id: Number(item.id), username: String(item.username) }));
+				}
+			} catch {
+				mentions = [];
+			}
+		} else if (Array.isArray($form.mentions)) {
+			mentions = $form.mentions
+				.filter(item => item && typeof item === 'object' && 'id' in item && 'username' in item)
+				.map(item => ({ id: Number(item.id), username: String(item.username) }));
+		} else {
+			mentions = [];
+		}
+	}
 
 	const flash = getFlash(page);
 
 	let isEditing = false;
 	let isDeleting = false;
+
+	onMount(() => {
+		const params = new URLSearchParams(window.location.search);
+		if (params.get('mode') === 'edit') {
+			isEditing = true;
+		}
+	});
+
+	function handleEditClick() {
+		const params = new URLSearchParams(window.location.search);
+
+		if (params.get('mode') === 'edit') {
+			isEditing = !isEditing;
+		} else {
+			const url = `${route('/app/[content_id=integer]', {
+				content_id: (content.content_id || '').toString()
+			})}?c_id=${$page.data.user?.company_id}&mode=edit`;
+			window.open(url, '_blank', 'noopener,noreferrer');
+		}
+	}
 </script>
 
 <div class="grid grid-rows-[auto_1fr_auto]">
@@ -156,7 +207,7 @@
 							<!-- Display edit button-->
 							<button
 								class="variant-filled-primary chip hover:variant-filled"
-								on:click={() => (isEditing = !isEditing)}
+								on:click={handleEditClick}
 							>
 								<span><Pencil strokeWidth={1.5} /></span>
 							</button>
@@ -217,11 +268,10 @@
 			<!-- Main Content Body -->
 
 			{#if !isEditing}
-				<!-- Display Content: Display content text -->
+				<!-- Display Content: Display content text with markdown parsing -->
 				<article class="prose">
-					{@html content?.text}
+					{@html content?.text ? marked(content.text) : ''}
 				</article>
-
 				<!-- Display Attachments -->
 				<div class="flex flex-col">
 					{#each content.child_id || [] as attachment}
@@ -239,53 +289,56 @@
 				</div>
 			{:else}
 				<!-- Edit Content: Display editor -->
-				<div class="">
-					{#await circleUsers}
-						Loading...
-					{:then circleUsers}
-						<Editor
-							bind:htmlContent={$form.text}
-							bind:readonly={isReadonly}
-							bind:mentions={$form.mentions}
-							{circleUsers}
-							on:blur={() => validate('text')}
-						/>
-						<input type="hidden" name="text" bind:value={$form.text} />
-						<input type="hidden" name="mentions" bind:value={$form.mentions} />
-					{:catch error}
-						<p class="text-error-500">Error: {error.message}</p>
-					{/await}
-				</div>
-				{#if $errors.text}<span class="text-error-500">{$errors.text}</span>{/if}
-				{#if $errors.mentions?._errors}<span class="text-error-500"
-						>{$errors.mentions?._errors}</span
-					>{/if}
+				{#if !$page.data.user}
+					<div>Please log in to edit content.</div>
+				{:else}
+					<div class="">
+						{#await circleUsers}
+							Loading...
+						{:then circleUsers}
+							<Editor
+								bind:htmlContent={$form.text}
+								bind:readonly={isReadonly}
+								bind:mentions={mentions}
+								{circleUsers}
+								on:blur={() => validate('text')}
+							/>
+							<input type="hidden" name="text" bind:value={$form.text} />
+							<input type="hidden" name="mentions" bind:value={mentions} />
+						{:catch error}
+							<p class="text-error-500">Error: {error.message}</p>
+						{/await}
+					</div>
 
-				<FileUpload {superform} />
+					{#if $errors.text}<span class="text-error-500">{$errors.text}</span>{/if}
+					{#if Array.isArray($errors.mentions) && $errors.mentions.length > 0}<span class="text-error-500">{$errors.mentions.join(", ")}</span>{/if}
 
-				<!-- Edit Attachments -->
-				{#each $form.child_ids || [] as attachment}
-					{@const filename_disk = content.child_id?.find(
-						(child) => child.content_id === attachment.content_id
-					)?.file_id?.filename_disk}
-					{#if filename_disk}
-						<button
-							type="button"
-							class="variant-soft chip hover:variant-filled"
-							on:click={() => {
-								// Remove the attachment's content_id from the form child_ids
-								$form.child_ids = $form.child_ids?.filter(
-									(child) => child.content_id !== attachment.content_id
-								);
-							}}
-						>
-							<span>{filename_disk}</span>
-							<span><X color="red" /></span>
-						</button>
-					{/if}
-				{/each}
-				<input type="hidden" name="child_ids" bind:value={$form.child_ids} />
-				<CircleSelection {superform} field="circles" />
+					<FileUpload {superform} />
+
+					<!-- Edit Attachments -->
+					{#each $form.child_ids || [] as attachment}
+						{@const filename_disk = content.child_id?.find(
+							(child) => child.content_id === attachment.content_id
+						)?.file_id?.filename_disk}
+						{#if filename_disk}
+							<button
+								type="button"
+								class="variant-soft chip hover:variant-filled"
+								on:click={() => {
+									// Remove the attachment's content_id from the form child_ids
+									$form.child_ids = $form.child_ids?.filter(
+										(child) => child.content_id !== attachment.content_id
+									);
+								}}
+							>
+								<span>{filename_disk}</span>
+								<span><X color="red" /></span>
+							</button>
+						{/if}
+					{/each}
+					<input type="hidden" name="child_ids" bind:value={$form.child_ids} />
+					<CircleSelection {superform} field="circles" />
+				{/if}
 			{/if}
 		</div>
 	</form>

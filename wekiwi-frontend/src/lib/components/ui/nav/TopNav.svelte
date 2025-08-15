@@ -31,8 +31,7 @@
 			const newUrl = new URL($page.url);
 			newUrl.searchParams?.set('c_id', $page.data.user?.company_id);
 			newUrl.searchParams?.set('search', contentTitle);
-			
-			goto(newUrl);  // Keep the navigation as required
+			goto(newUrl, { invalidate: ['data:feed'] });
 		}
 	}
 

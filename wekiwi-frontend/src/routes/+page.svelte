@@ -259,7 +259,7 @@
 	{/if}
 </div>
 
-<div class="fixed bottom-24 right-2 m-4 flex w-[12%] min-w-40 flex-col gap-2">
+<div class="fixed bottom-24 right-2 m-4 flex w-[20%] min-w-80 flex-col gap-2 overflow-visible">
 	<a
 		class="variant-filled-primary btn btn-sm"
 		href="https://www.news.wekiwi.de"
@@ -271,6 +271,18 @@
 		href="https://news.wekiwi.de/kontakt/"
 		target="_blank"
 		rel="noopener noreferrer">Kontakt</a
+	>
+	<a
+		class="variant-filled-primary btn btn-sm"
+		href={route('/imprint/termsofuse')}
+		target="_blank"
+		rel="noopener noreferrer">Auftragsverarbeitungsvereinbarung</a
+	>
+	<a
+		class="variant-filled-primary btn btn-sm"
+		href={route('/imprint/privacypolicy')}
+		target="_blank"
+		rel="noopener noreferrer">Datenschutzbestimmungen</a
 	>
 </div>
 

@@ -5,6 +5,9 @@
 
 	import { DEFAULT_PLACEHOLDER_AVATAR, MAX_LENGTH_SUBCONTENT } from '$lib/config/constants';
 
+	// Import marked for markdown parsing
+	import { marked } from 'marked';
+
 	import { formatDate, truncateText } from '$lib/utils';
 
 	import { RecursiveTreeView, Avatar } from '@skeletonlabs/skeleton';
@@ -81,11 +84,14 @@
 	}
 
 	let showFullText = false;
+	let contentHeight = 0;
+	let containerHeight = 0;
+
+	$: hasOverflow = contentHeight > containerHeight;
 </script>
 
 <div class="relative clear-both max-w-[800px] flex-1 p-2">
-	<div
-		class="card card-hover overflow-hidden border-4 border-solid border-primary-500 bg-white px-6 py-4 shadow-lg"
+	<div class="card card-hover overflow-hidden border-4 border-solid border-primary-500 bg-white px-6 py-4 shadow-lg"
 	>
 		<nav class="mt-2 flex items-center justify-start space-x-4 pb-4 pl-4 pr-4">
 			<div class="flex flex-auto items-center justify-between text-sm font-light text-gray-600">
@@ -120,8 +126,8 @@
 							: DEFAULT_PLACEHOLDER_AVATAR + content?.user_updated?.username}
 						alt="profile_picture"
 					/>
-						<small>Bearbeitet: {content?.user_updated?.username}</small>
-						<small>{formatDate(content?.date_updated)}</small>
+					<small>Bearbeitet: {content?.user_updated?.username}</small>
+					<small>{formatDate(content?.date_updated)}</small>
 				{/if}
 			</div>
 		</nav>
@@ -149,21 +155,38 @@
 
 		<div class="space-y-4 p-4">
 			{#if content.content_type === 'text'}
-				<article class="prose">
+				<article class="prose relative">
 					{#if content.text}
 						<!-- Content text -->
-						<p>
-							{#if showFullText}
-								{@html content?.text || ''}
-							{:else}
-								{@html truncateText(content?.text, MAX_LENGTH_SUBCONTENT)}
-							{/if}
-						</p>
+						{#if showFullText}
+							<div class="content-expanded">
+								{@html content?.text ? marked(content.text) : ''}
+							</div>
+						{:else}
+							<div class="preview-container" bind:clientHeight={containerHeight}>
+								<div class="preview-content" bind:clientHeight={contentHeight}>
+									{@html content?.text ? marked(content.text) : ''}
+								</div>
+							</div>
+						{/if}
 
-						{#if content?.text.length > MAX_LENGTH_SUBCONTENT}
-							<button class="mt-2 text-xs" on:click={() => (showFullText = !showFullText)}>
-								{showFullText ? 'Weniger anzeigen' : 'Mehr anzeigen'}
-							</button>
+						{#if hasOverflow}
+							<div class="sticky-button bg-white border-t border-gray-100 pt-2 mt-2">
+								<div class="flex items-center gap-2">
+									{#if !showFullText}
+										<span class="text-xs">...</span>
+									{/if}
+									<button
+										class="text-xs"
+										on:click={(e) => {
+											e.stopPropagation();
+											showFullText = !showFullText;
+										}}
+									>
+										{showFullText ? 'Weniger anzeigen' : 'Mehr anzeigen'}
+									</button>
+								</div>
+							</div>
 						{/if}
 					{:else}
 						<p>Kein Text vorhanden</p>
@@ -209,32 +232,32 @@
 				</a>
 			</div>
 			<!-- <div class="flex items-center"> -->
-				<!-- contentReaction -->
-				<div class="flex justify-center space-x-2">
-					<form
-						method="POST"
-						action={route('contentReaction /app/[content_id=integer]', {
-							// @ts-ignore
-							content_id: content.content_id.toString(),
-							reaction_type: 'like'
-						})}
-						use:enhance={() => {
-							return async ({ result }) => {
-								if (result.type === 'failure' || result.type === 'error') {
-									//remove like on failure or error
-								}
-							};
-						}}
-					>
-						<!-- <button class="variant-soft chip py-2 text-xs hover:variant-filled">
+			<!-- contentReaction -->
+			<div class="flex justify-center space-x-2">
+				<form
+					method="POST"
+					action={route('contentReaction /app/[content_id=integer]', {
+						// @ts-ignore
+						content_id: content.content_id.toString(),
+						reaction_type: 'like'
+					})}
+					use:enhance={() => {
+						return async ({ result }) => {
+							if (result.type === 'failure' || result.type === 'error') {
+								//remove like on failure or error
+							}
+						};
+					}}
+				>
+					<!-- <button class="variant-soft chip py-2 text-xs hover:variant-filled">
 							<ThumbsUp size={20} color="#ffffff" strokeWidth={1.5} />
 							<span class="screen-reader-only">Like</span>
 						</button> -->
-					</form>
+				</form>
 
-					<!-- shareContent -->
-					<!-- TODO: This should open a modal not be a formaction! -->
-					<!-- <form
+				<!-- shareContent -->
+				<!-- TODO: This should open a modal not be a formaction! -->
+				<!-- <form
 						method="POST"
 						action={route('shareContent /app/[content_id=integer]', {
 							// @ts-ignore
@@ -249,7 +272,8 @@
 						</button>
 					</form>
 				</div> -->
-			<!-- </div> -->
+				<!-- </div> -->
+			</div>
 		</footer>
 
 		<!-- {#if subContents}
@@ -270,3 +294,40 @@
 		{/if} -->
 	</div>
 </div>
+
+<style>
+	.preview-container {
+		position: relative;
+		height: 8em; /* Fixed height instead of max-height */
+		overflow: hidden;
+	}
+	
+	.preview-content {
+		position: absolute; /* Take out of flow to get real height */
+		width: 100%;
+		padding-bottom: 2em;
+	}
+	
+	.preview-container::after {
+		content: '';
+		position: absolute;
+		bottom: 0;
+		left: 0;
+		right: 0;
+		height: 2em;
+		background: linear-gradient(transparent, white);
+		pointer-events: none;
+	}
+	
+	.content-expanded {
+		max-height: 500px;
+		overflow-y: auto;
+		padding-bottom: 40px; /* Make room for sticky button */
+	}
+	
+	.sticky-button {
+		position: sticky;
+		bottom: 0;
+		z-index: 10;
+	}
+</style>

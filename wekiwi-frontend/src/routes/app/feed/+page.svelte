@@ -1,5 +1,8 @@
 <script lang="ts">
+	import { invalidate } from '$app/navigation';
 	import { navigating } from '$app/stores';
+
+	import { onMount } from 'svelte';
 
 	import FeedPreviewContainer from '$lib/components/content/feed/FeedPreviewContainer.svelte';
 	import { getStateContext } from '$lib/state';
@@ -11,7 +14,9 @@
 	let container: FeedPreviewContainer;
 
 	let can_restore = false;
-
+	onMount(() => {
+		invalidate('data:feed');
+	});
 	$: if ($navigating) {
 		// check if back or forward button in browser was clicked
 		can_restore = $navigating.type === 'popstate';
@@ -26,8 +31,6 @@
 		}),
 		restore: (values) => {
 			if (!can_restore) return;
-
-			console.log('Restoring', values.contents, values.next, values.scroller);
 
 			data.contents = values.contents;
 

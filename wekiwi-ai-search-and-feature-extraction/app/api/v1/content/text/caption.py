@@ -22,7 +22,7 @@ async def rerank(
     text: Annotated[str, Body()],
 ):
     try:
-        return generate_german_title(text)
+        return await generate_german_title(text)
 
     except Exception as e:
         logger.error(f"Error when generating title: {e}")

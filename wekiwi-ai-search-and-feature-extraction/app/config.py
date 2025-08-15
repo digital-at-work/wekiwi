@@ -78,7 +78,13 @@ RERANKER_REQUEST_FLUSH_TIMEOUT = config.get("RERANKER_REQUEST_FLUSH_TIMEOUT", de
 DIRECTUS_URL = config.get("DIRECTUS_URL", default="https://your-default.de")
 DIRECTUS_ADMIN_KEY = config.get("DIRECTUS_ADMIN_KEY")
 
+# Ollama API Configuration
+OLLAMA_API_URL = config.get("OLLAMA_API_URL", default="http://ollama:11434/api/generate")
+OLLAMA_TITLE_MODEL = config.get("OLLAMA_TITLE_MODEL", default="gemma3")
 
+# DAW API Hub (External PDF Conversion Service) Configuration
+DAW_API_HUB_URL = config.get("DAW_API_HUB_URL", default="http://daw-api-hub:6100") # Default from your compose override
+DAW_HUB_KEY = config.get("DAW_HUB_KEY") # No default, should be set in docker-compose.override.yml
 
-
-
+# Swagger UI Direct Upload Service API Key
+SWAGGERSERVICE_API_KEY = config.get("SWAGGERSERVICE_API_KEY") # No default, should be set in docker-compose.override.yml

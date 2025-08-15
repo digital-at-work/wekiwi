@@ -304,7 +304,7 @@ class MilvusClient(BaseMilvusClient):
         offset: int = None,
         search_params: dict = None,
         filter_expr: str = None,
-        output_fields: list = ["content_id", "text"],
+        output_fields: list = ["content_id", "text", "title"],
         ranking_strategy: str = "rrf",  # "weighted" or "rrf"
         weights: list = None,  # weights for weighted ranking
         page_size: int | None = 20,

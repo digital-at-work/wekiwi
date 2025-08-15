@@ -19,6 +19,7 @@ export type PartialContent = {
   file_id?: string | DirectusFiles | null;
   interaction_id?: any[] | Interactions[];
   circle_contents?: undefined | any[] | CircleContents[];
+  to_be_parsed_by_directus_flow?: boolean;
 };
 
 // <---
@@ -79,6 +80,7 @@ export type Contents = {
   user_updated?: DirectusUsers | null;
   file_id?: string | DirectusFiles | null;
   interaction_id?: any[] | Interactions[];
+  to_be_parsed_by_directus_flow?: boolean;
 };
 
 export type DirectusActivity = {

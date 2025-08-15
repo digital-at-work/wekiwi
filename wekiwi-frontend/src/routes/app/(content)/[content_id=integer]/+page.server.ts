@@ -11,6 +11,7 @@ import { readItem, deleteItem, deleteItems, updateItem, createShare, readUsers, 
 import { setFlash } from 'sveltekit-flash-message/server';
 
 import { ReactionType } from '$lib/config/constants'
+import { number } from 'zod';
 
 
 export const load: PageServerLoad = async ({ locals, url, params, setHeaders }) => {
@@ -98,7 +99,6 @@ export const load: PageServerLoad = async ({ locals, url, params, setHeaders }) 
 			},
 		]
 	}))
-
 	return {
 		content: response
 	};
@@ -107,9 +107,7 @@ export const load: PageServerLoad = async ({ locals, url, params, setHeaders }) 
 
 export const actions = {
 	updateContent: async ({ locals, params, request, cookies, url }) => {
-
 		const form = await superValidate(request, zod(contentEditSchema));
-
 		if (!form.valid) {
 			return fail(400, withFiles({ form }));
 		}
@@ -126,7 +124,7 @@ export const actions = {
 			setFlash({ type: 'error', message: 'Unternehmen fehlt.' }, cookies);
 			return fail(400, withFiles({ form }));
 		}
-
+		
 		try {
 			let files: { id: string, content_type: string, type: string | null }[] = [];
 			let newAttachments: any = [];
@@ -259,7 +257,6 @@ export const actions = {
 					}
 				]
 			}));
-
 			if (form.data.mentions) {
 				await locals.directusInstance.request(triggerFlow('POST', '45ae3423-dd27-4d87-a954-49d7964c6e92', {
 					usernames: JSON.stringify(form.data.mentions),
@@ -267,7 +264,6 @@ export const actions = {
 					content_id: params.content_id,
 				}));
 			}
-
 			return withFiles({ form, content: content });
 		} catch (err: any) {
 			console.error(`[CONTENT] Error`, err);
@@ -374,15 +370,42 @@ export const actions = {
 		}
 	},
 	deleteContent: async ({ locals, params, cookies }) => {
-		if (!params.content_id) return fail(400, { message: 'Inhalts ID fehlt.' });
+		if (!params.content_id) {
+			return fail(400, { message: 'Missing content ID.' });
+		}
+
+		const contentId = Number(params.content_id);
+
+		/**
+		 * Recursively deletes a content item and all its children (and grandchildren, etc.).
+		 * Ensures that no foreign key constraint errors occur due to existing child references.
+		 */
+		const deleteContentRecursively = async (parentId: number) => {
+			// Step 1: Fetch all children of the current content item
+			const children = await locals.directusInstance.request(
+				readItems('contents', {
+					filter: { parent_id: { _eq: parentId } },
+					fields: ['content_id']
+				})
+			);
+
+			// Step 2: Recursively delete each child (in case it has its own children)
+			for (const child of children) {
+				await deleteContentRecursively(child.content_id);
+			}
+
+			// Step 3: After all children are deleted, delete the parent item itself
+			await locals.directusInstance.request(deleteItems('contents', [parentId]));
+		};
 
 		try {
-			// TODO: either defined a query to delete also all child contents or update to some status...
-			await locals.directusInstance.request(deleteItems('contents', [params.content_id]));
-
+			await deleteContentRecursively(contentId);
 		} catch (err: any) {
-			console.error('Error deleting content', err.errors[0].message);
-			error(500, 'Error deleting content');
+			console.error(
+				'Failed to delete content recursively:',
+				err?.errors?.[0]?.message || err.message
+			);
+			throw error(500, 'Failed to delete content item.');
 		}
 	}
 } satisfies Actions;

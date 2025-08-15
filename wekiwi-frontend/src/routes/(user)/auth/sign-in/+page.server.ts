@@ -64,14 +64,13 @@ export const actions = {
 			cookies.set('access_token', tokens.access_token || "", { path: '/' });
 			cookies.set('refresh_token', tokens.refresh_token || "", { path: '/' });
 
-			console.debug("[LOGIN]", circles);
 
 		} catch (e) {
 			console.error("[LOGIN]", e);
 			return setError(form, '', 'Die Email oder das Passwort ist falsch.');
 		}
 
-		redirect(307, route('/'), { type: 'success', message: "Moin!" }, cookies);
+		//redirect(307, route('/'), { type: 'success', message: "Moin!" }, cookies);
 
 	}
 } satisfies Actions;

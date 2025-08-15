@@ -80,10 +80,15 @@ export function trapfocus(node: HTMLElement) {
 	};
 }
 
-export function truncateText(text: string, length: number): string {
-	return text.length > length
-		? text.substring(0, length) + '...'
-		: text;
+export function truncateText(text: string, maxLines: number): string {
+	if (!text) return '';
+	
+	// Split content into lines, preserving tags within lines
+	const lines = text.split(/\n+/);
+	if (lines.length <= maxLines) return text;
+	
+	// Take only the first maxLines lines
+	return lines.slice(0, maxLines).join('\n') + '\n...';
 }
 
 export function formatDate(dateString: string | null | undefined): string {

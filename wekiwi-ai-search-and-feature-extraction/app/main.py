@@ -7,10 +7,18 @@ import contextlib
 
 from concurrent.futures import ProcessPoolExecutor
 
+import uvicorn
+import contextlib
+
+from concurrent.futures import ProcessPoolExecutor
+
 from fastapi import FastAPI, APIRouter, Depends
 
 from .api.v1.content import content, search
 from .api.v1.content.text import rerank, caption
+# Add the imports for PDF processing endpoints
+from .api.v1.content import parse_and_reply
+from .api.v1.content import direct_upload
 
 from .internal.utils.logging import init_logging, log_requests_and_responses
 from .internal.errors import (
@@ -214,8 +222,34 @@ app.include_router(
     dependencies=[Depends(check_authentication)],
 )
 
-router = APIRouter()
+# --- Add the PDF parsing routers ---
+app.include_router(
+    parse_and_reply.router, # Use the imported router object
+    tags=["PDF Parsing"], # Use the tag defined in the router file
+    dependencies=[Depends(check_authentication)], # Apply standard authentication
+)
 
+# Add the direct upload router WITHOUT the standard authentication dependency
+# (it uses its own service-specific authentication in the endpoint)
+app.include_router(
+    direct_upload.router,
+    tags=["PDF Parsing"],
+    # No global authentication dependency - uses custom service API key auth
+)
+# --- End adding PDF parsing routers ---
+
+router = APIRouter()
+from slowapi.errors import RateLimitExceeded
+from fastapi.responses import JSONResponse
+from fastapi import Request
+from fastapi import status
+
+@app.exception_handler(RateLimitExceeded)
+async def rate_limit_exceeded(request: Request, exc: RateLimitExceeded):
+    return JSONResponse(
+        status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+        content={"message": "Rate limit exceeded. Please try again later"},
+    )
 
 def main():
     logger.info(f"Starting server on {HOST}:{PORT} {__name__}:app")

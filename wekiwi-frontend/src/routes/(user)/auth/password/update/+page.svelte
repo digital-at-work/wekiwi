@@ -21,6 +21,26 @@
 		{ color: 'transparent', start: 0, end: 25 },
 		{ color: 'rgb(var(--color-primary-900))', start: 75, end: 100 }
 	];
+
+	let password = '';
+
+	interface PasswordRequirements {
+		length: boolean;
+		uppercase: boolean;
+		lowercase: boolean;
+		number: boolean;
+		special: boolean;
+	}
+
+	function checkPasswordRequirements(password: string): PasswordRequirements {
+		return {
+			length: password.length >= 10,
+			uppercase: /[A-Z]/.test(password),
+			lowercase: /[a-z]/.test(password),
+			number: /\d/.test(password),
+			special: /[\W_]/.test(password)
+		};
+	}
 </script>
 
 <form method="POST" use:enhance>
@@ -50,6 +70,38 @@
 				bind:value={$form.password}
 				class="input {$errors.password ? 'input-error' : ''}"
 			/>
+			<div class="password-requirements mt-2">
+				<div
+					class="requirement"
+					style="color: {checkPasswordRequirements($form.password).length ? 'green' : 'red'}"
+				>
+					✓ At least 10 characters
+				</div>
+				<div
+					class="requirement"
+					style="color: {checkPasswordRequirements($form.password).uppercase ? 'green' : 'red'}"
+				>
+					✓ At least one uppercase letter
+				</div>
+				<div
+					class="requirement"
+					style="color: {checkPasswordRequirements($form.password).lowercase ? 'green' : 'red'}"
+				>
+					✓ At least one lowercase letter
+				</div>
+				<div
+					class="requirement"
+					style="color: {checkPasswordRequirements($form.password).number ? 'green' : 'red'}"
+				>
+					✓ At least one number
+				</div>
+				<div
+					class="requirement"
+					style="color: {checkPasswordRequirements($form.password).special ? 'green' : 'red'}"
+				>
+					✓ At least one special character
+				</div>
+			</div>
 			{#if $errors.password}
 				<small>{$errors.password}</small>
 			{/if}
@@ -84,3 +136,13 @@
 		</button>
 	</div>
 </form>
+
+<style>
+	.password-requirements {
+		margin-top: 1rem;
+	}
+	.requirement {
+		font-size: 0.9rem;
+		margin: 0.25rem 0;
+	}
+</style>

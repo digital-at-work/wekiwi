@@ -11,7 +11,27 @@
 
 	import { AlertTriangle } from 'lucide-svelte';
 
+	interface PasswordRequirements {
+		length: boolean;
+		uppercase: boolean;
+		lowercase: boolean;
+		number: boolean;
+		special: boolean;
+	}
+
 	export let data;
+
+	let password = '';
+
+	function checkPasswordRequirements(password: string): PasswordRequirements {
+		return {
+			length: password.length >= 10,
+			uppercase: /[A-Z]/.test(password),
+			lowercase: /[a-z]/.test(password),
+			number: /\d/.test(password),
+			special: /[\W_]/.test(password)
+		};
+	}
 
 	const { form, errors, enhance, delayed } = superForm(data.form, {
 		validators: zodClient(signUpSchema),
@@ -25,12 +45,31 @@
 		{ color: 'transparent', start: 0, end: 25 },
 		{ color: 'rgb(var(--color-primary-900))', start: 75, end: 100 }
 	];
+
+	function isPasswordValid(password: string): boolean {
+		const requirements = checkPasswordRequirements(password);
+		return (
+			requirements.length &&
+			requirements.uppercase &&
+			requirements.lowercase &&
+			requirements.number &&
+			requirements.special
+		);
+	}
+
+	$: isFormValid = $form.terms && password && isPasswordValid(password);
+
+	$: $form.password && (password = $form.password);
+
+	function getIsFormValid(): boolean {
+		return isFormValid;
+	}
 </script>
 
 {#if $page.url.searchParams.get('circles')}
-    <div class="mb-6">
-        Du wurdest eingeladen. Bitte registriere dich, um teil von Wekiwi zu werden.
-    </div>
+	<div class="mb-6">
+		Du wurdest eingeladen. Bitte registriere dich, um teil von Wekiwi zu werden.
+	</div>
 {/if}
 
 <form method="POST" action={route('signUp /auth/sign-up')} use:enhance>
@@ -137,6 +176,32 @@
 				class="input"
 				class:input-error={$errors.password}
 			/>
+			<div class="password-requirements mt-2">
+				<div
+					class="requirement"
+					style="color: {checkPasswordRequirements($form.password).length ? 'green' : 'red'}"
+				>
+					✓ Mindestens 10 Zeichen
+				</div>
+				<div
+					class="requirement"
+					style="color: {checkPasswordRequirements(password).uppercase ? 'green' : 'red'}"
+				>
+					✓ Mindestens ein Großbuchstabe
+				</div>
+				<div
+					class="requirement"
+					style="color: {checkPasswordRequirements(password).number ? 'green' : 'red'}"
+				>
+					✓ Mindestens eine Nummer
+				</div>
+				<div
+					class="requirement"
+					style="color: {checkPasswordRequirements(password).special ? 'green' : 'red'}"
+				>
+					✓ Mindestens ein Sonderzeichen
+				</div>
+			</div>
 			{#if $errors.password}
 				<small>{$errors.password}</small>
 			{/if}
@@ -144,17 +209,11 @@
 	</div>
 	<div class="mt-6">
 		<label for="terms" class="flex items-center space-x-4">
-			<input
-				id="terms"
-				name="terms"
-				type="checkbox"
-				class="checkbox"
-				bind:checked={$form.terms}
-			/>
+			<input id="terms" name="terms" type="checkbox" class="checkbox" bind:checked={$form.terms} />
 			<p>
 				Ich akzeptiere die
 				<a href={route('/imprint/termsofuse')} class="text-primaryHover underline"
-					>Nutzungsbedingungen</a
+					>Auftragsverarbeitungsvereinbarung</a
 				>
 				und
 				<a href={route('/imprint/privacypolicy')} class="text-primaryHover underline"
@@ -163,7 +222,7 @@
 			</p>
 		</label>
 	</div>
-	
+
 	{#if $errors.terms}
 		<small>{$errors.terms}</small>
 	{/if}
@@ -171,10 +230,20 @@
 	<div class="mt-6">
 		<button
 			type="submit"
-			disabled={!$form.terms}
+			disabled={!isFormValid}
 			class="btn variant-filled-primary w-full"
 		>
 			{#if $delayed}<ConicGradient stops={conicStops} spin width="w-6" />{:else}Anmelden{/if}
 		</button>
 	</div>
 </form>
+
+<style>
+	.password-requirements {
+		margin-top: 1rem;
+	}
+	.requirement {
+		font-size: 0.9rem;
+		margin: 0.25rem 0;
+	}
+</style>

@@ -23,6 +23,7 @@ const PUBLIC_AISERVER_PORT = publicEnv.PUBLIC_AI_SERVER_PORT;
 
 const ALEPH_ALPHA_TOKEN = privateEnv.ALEPH_ALPHA_TOKEN;
 const AI_API_KEY = privateEnv.AI_API_KEY;
+const PRIVATE_OLLAMA_URL = privateEnv.PRIVATE_OLLAMA_URL ?? 'http://185.64.113.27:8080';  // Fallback for type safety
 
 const TOKEN_EXPIRATION_BUFFER = 0;
 
@@ -56,7 +57,7 @@ function isTokenExpired(jwtPayload: JwtPayload) {
 
 function isPublicRoute(url: string): boolean {
 	// check for public routes: returns true if the route is public
-	return (['/sign-up', '/sign-in', '/password'].some(part => url.includes(part)) || url === '/');
+	return (['/sign-up', '/sign-in', '/password', '/imprint/termsofuse', '/imprint/privacypolicy'].some(part => url.includes(part)) || url === '/');
 }
 
 
@@ -137,7 +138,8 @@ export const handle = sequence(
 	proxyHandle({
 		'/aiproxy': [`${PUBLIC_AI_SERVER_URL}:${PUBLIC_AISERVER_PORT}`, AI_API_KEY],
 		'/cmsproxy': [PUBLIC_CMS_URL],
-		'/aleph_alpha_proxy': [PUBLIC_ALEPH_CHAT_URL, ALEPH_ALPHA_TOKEN]
+		'/aleph_alpha_proxy': [PUBLIC_ALEPH_CHAT_URL, ALEPH_ALPHA_TOKEN],
+		'/ollama_proxy': [PRIVATE_OLLAMA_URL]
 	},
 		{ changeOrigin: true, debug: false }
 	),

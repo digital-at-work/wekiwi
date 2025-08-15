@@ -1,29 +1,55 @@
 import type { Handle } from '@sveltejs/kit';
 
 import { env } from '$env/dynamic/public';
+import { env as privateEnv } from '$env/dynamic/private';
 
 const PUBLIC_FRONTEND_URL = env.PUBLIC_FRONTEND_URL;
 const PUBLIC_CMS_URL = env.PUBLIC_CMS_URL;
+const PRIVATE_OLLAMA_API = privateEnv.PRIVATE_OLLAMA_API;
 
 interface RequestHeaders {
   [key: string]: string;
 }
 
+interface ProxyConfig {
+  [key: string]: {
+    target: string;
+    token?: string;
+    headers?: Record<string, string>;
+  };
+}
+
 export function proxyHandle(
-  proxy: { [key: string]: Array<string> },
+  proxyPaths: { [key: string]: Array<string> },
   options = { changeOrigin: true, debug: false }): Handle {
   
   // Logging .env variables for production mode
   console.log(`PUBLIC_FRONTEND_URL: ${PUBLIC_FRONTEND_URL}, 
                PUBLIC_CMS_URL: ${PUBLIC_CMS_URL}`);
 
+  // Convert the simple array format to the more detailed config format
+  const proxy: ProxyConfig = {};
+  for (const path in proxyPaths) {
+    proxy[path] = {
+      target: proxyPaths[path][0],
+      token: proxyPaths[path][1]
+    };
+    
+    // Special handling for Ollama API
+    if (path === '/ollama_proxy' && PRIVATE_OLLAMA_API) {
+      proxy[path].headers = {
+        'X-Api-Key': PRIVATE_OLLAMA_API
+      };
+    }
+  }
+  
   return async function ({ event, resolve }) {
     const { url, request } = event;
 
     for (const proxyParam in proxy) {
       const proxy_url = url.pathname.split(proxyParam)[1];
       if (proxy_url) {
-        const proxyTarget = proxy[proxyParam][0];
+        const proxyTarget = proxy[proxyParam].target;
 
         const requestHeaders: RequestHeaders = {
           "Accept": request.headers.get("accept") ?? "",
@@ -31,9 +57,21 @@ export function proxyHandle(
           "accept-encoding": request.headers.get("accept-encoding") ?? "",
           "accept-language": request.headers.get("accept-language") ?? "",
           "Content-Type": request.headers.get("Content-Type") ?? "",
-          // Use provided key or the directus access_token of the user
-          "Authorization": `Bearer ${proxy[proxyParam][1] || event.cookies.get('access_token')}`,
         };
+        
+        // Add Authorization header if token is provided
+        if (proxy[proxyParam].token) {
+          requestHeaders["Authorization"] = `Bearer ${proxy[proxyParam].token}`;
+        } else if (event.cookies.get('access_token')) {
+          requestHeaders["Authorization"] = `Bearer ${event.cookies.get('access_token')}`;
+        }
+        
+        // Add any additional custom headers from the proxy config
+        if (proxy[proxyParam].headers) {
+          Object.entries(proxy[proxyParam].headers).forEach(([key, value]) => {
+            requestHeaders[key] = value;
+          });
+        }
 
         if (options && !options.changeOrigin) {
           requestHeaders.host = request.headers.get("host") ?? "";
@@ -68,7 +106,7 @@ export function proxyHandle(
         const resp = await fetch(`${proxyTarget}${proxy_url}${url.search}`, {
           method: request.method,
           headers: requestHeaders,
-          body,
+          body: contentType?.startsWith('application/json') ? JSON.stringify(body) : body,
         });
 
         // Clean up response headers

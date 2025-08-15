@@ -31,20 +31,20 @@ async def create_content_chunks(
     if re.match(r'^\s*$', content.text):
         text_chunks = [""]
     else:
+        # XML/ElementTree objects are now handled by ContentValidated validator
         document_chunks = text_splitter(sanitize_text(content.text))
         text_chunks = [doc.page_content for doc in document_chunks]      
         
     # Generate title if not provided
-    # TODO: perform this step in parallel with text embedding
     if re.match(r'^\s*$', content.title):
-        title = content.title  
-    else:
         try: 
             title = await generate_german_title(content.text)
         except httpx.HTTPError as e:
             logger.error(f"Error generating title for content ID {content.content_id}: {e}")
             title = ""  # fallback title
-        background_tasks.add_task(request.state.directusclient.update_item, "contents", content.content_id, {"title": title}) 
+        background_tasks.add_task(request.state.directusclient.update_item, "contents", content.content_id, {"title": title})
+    else:
+        title = content.title
 
     logger.info(f"Processing content_id: {content.content_id} text chunks: {len(text_chunks)}, title: {title}") 
 
@@ -104,6 +104,7 @@ async def update_content_chunks(
             text_embeddings_sparse.append(chunk.get("text_embedding_sparse"))
     else:
         # Text chunks need to be re-created and embedded
+        # XML/ElementTree objects are now handled by ContentValidated/ContentOptional validator
         document_chunks = text_splitter(sanitize_text(content.text))
         text_chunks = [doc.page_content for doc in document_chunks] 
         

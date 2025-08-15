@@ -1,1 +1,1 @@
-from .directus import DirectusClient
+from .directus import DirectusClient, UserDirectusClient

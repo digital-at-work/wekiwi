@@ -2,12 +2,37 @@
 	import { UploadCloud, X } from 'lucide-svelte';
 
 	import { FileDropzone } from '@skeletonlabs/skeleton';
+	import { Check } from 'lucide-svelte';
+
+	import { superForm } from 'sveltekit-superforms';
+	import { contentCreateSchema } from '$lib/config/zod-schemas';
 
 	export let superform;
 
 	const { errors, form } = superform;
 
 	let fileinput: HTMLInputElement;
+
+	function handleFileChange(e: Event) {
+		const input = e.currentTarget as HTMLInputElement;
+		if (!input || !input.files) return;
+
+		const newFiles: File[] = Array.from(input.files);
+		const existingFiles: File[] = $form.files || [];
+
+		const combined: File[] = [
+			...existingFiles,
+			...newFiles.filter(
+				(f: File) => !existingFiles.some((ef: File) => ef.name === f.name && ef.size === f.size)
+			)
+		];
+
+		const dt = new DataTransfer();
+		combined.forEach((file) => dt.items.add(file));
+		input.files = dt.files;
+
+		$form.files = combined;
+	}
 </script>
 
 <div>
@@ -20,10 +45,7 @@
 			? 'btn variant-filled-primary'
 			: 'variant-soft-secondary'} h-10 w-full border-surface-500 hover:border-primary-500"
 		multiple
-		on:change={(e) => {
-			// @ts-ignore
-			$form.files = Array.from(e.currentTarget.files ?? []);
-		}}
+		on:change={handleFileChange}
 		bind:fileInput={fileinput}
 	>
 		<svelte:fragment slot="message">
@@ -55,13 +77,21 @@
 						fileinput.files = dt.files;
 					}}
 				>
-					<span>{file.name}</span>
-					<span><X color="red" /></span>
+					<div class="flex items-center gap-2">
+						<span>{file.name}</span>
+						<span><X color="red" /></span>
+					</div>
 				</button>
-				{#if $errors && $errors[`${index}`]}
-					<span class="text-error-500">{$errors[`${index}`]}</span>
+				{#if $errors && Array.isArray($errors.files) && $errors.files[index]}
+					<span class="text-error-500">{$errors.files[index]}</span>
 				{/if}
 			</div>
 		{/each}
 	</div>
 </div>
+
+<!-- {#if $form?.files?.length > 0}
+	<div class="mt-2 flex items-center">
+		<span class="text-sm">Dokument analysieren</span>
+	</div>
+{/if} -->

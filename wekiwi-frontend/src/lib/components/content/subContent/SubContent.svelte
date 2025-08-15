@@ -8,6 +8,9 @@
 
 	import { Pencil, Check, X, Trash2, Download } from 'lucide-svelte';
 
+	// Import marked for markdown parsing
+	import { marked } from 'marked';
+
 	import { ConicGradient } from '@skeletonlabs/skeleton';
 
 	import { DEFAULT_PLACEHOLDER_AVATAR } from '$lib/config/constants';
@@ -77,6 +80,29 @@
 
 	let isEditing = false;
 	let isDeleting = false;
+
+	// Handle mentions data type conversion
+	let mentions: { id: number; username: string; }[] = [];
+	$: {
+		if (typeof $form.mentions === "string") {
+			try {
+				const parsed = JSON.parse($form.mentions);
+				if (Array.isArray(parsed)) {
+					mentions = parsed
+						.filter(item => item && typeof item === 'object' && 'id' in item && 'username' in item)
+						.map(item => ({ id: Number(item.id), username: String(item.username) }));
+				}
+			} catch {
+				mentions = [];
+			}
+		} else if (Array.isArray($form.mentions)) {
+			mentions = $form.mentions
+				.filter(item => item && typeof item === 'object' && 'id' in item && 'username' in item)
+				.map(item => ({ id: Number(item.id), username: String(item.username) }));
+		} else {
+			mentions = [];
+		}
+	}
 </script>
 
 <div class="rounded-lg bg-white p-4">
@@ -93,25 +119,29 @@
 		<div class="w-full">
 			<div class="flex w-[70%] items-center {!isReadonly && 'ml-auto flex-row-reverse'}">
 				<!-- Author Information -->
-				<img
-					src={subContent.user_created?.avatar
-						? route('cms_proxy_images', {
-								image_id: `${subContent.user_created?.avatar}`,
-								display_config: 'user-preview'
-							})
-						: DEFAULT_PLACEHOLDER_AVATAR + subContent?.user_created?.username}
-					class="mx-4 h-8 w-8 rounded-full"
-					alt={subContent?.user_created?.username ?? ''}
-				/>
+				<div class="flex flex-col items-center">
+					<img
+						src={subContent.user_created?.avatar
+								? route('cms_proxy_images', {
+										image_id: `${subContent.user_created?.avatar}`,
+										display_config: 'user-preview'
+									})
+								: DEFAULT_PLACEHOLDER_AVATAR + subContent?.user_created?.username}
+						class="h-10 w-10 rounded-full"
+						alt={subContent?.user_created?.username ?? ''}
+					/>
+					<span class="text-sm font-medium mt-1">{subContent?.user_created?.username ?? ''}</span>
+				</div>
 
 				<!-- Display editor -->
 				<div
-					class="rounded-large card prose
-					w-full border p-4 {!isReadonly && 'bg-primary-500 text-white'}"
+					class="rounded-large card
+					prose {!isReadonly && 'prose-primary bg-primary-500 text-white'}
+					w-full border p-4"
 				>
 					{#if !isEditing}
-						<!-- Display Content text -->
-						{@html subContent?.text}
+						<!-- Display Content text with markdown parsing -->
+						{@html subContent?.text ? marked(subContent.text) : ''}
 
 						<!-- Display Attachments -->
 						<div class="flex flex-col">
@@ -137,20 +167,18 @@
 								<Editor
 									bind:htmlContent={$form.text}
 									bind:readonly={isReadonly}
-									bind:mentions={$form.mentions}
+									bind:mentions={mentions}
 									{circleUsers}
 									on:blur={() => validate('text')}
 								/>
 								<input type="hidden" name="text" bind:value={$form.text} />
-								<input type="hidden" name="mentions" bind:value={$form.mentions} />
+								<input type="hidden" name="mentions" bind:value={mentions} />
 							{:catch error}
 								<p class="text-error-500">{error.message}</p>
 							{/await}
 						</div>
 						{#if $errors.text}<span class="text-error-500">{$errors.text}</span>{/if}
-						{#if $errors.mentions?._errors}<span class="text-error-500"
-								>{$errors.mentions?._errors}</span
-							>{/if}
+						{#if Array.isArray($errors.mentions) && $errors.mentions.length > 0}<span class="text-error-500">{$errors.mentions.join(", ")}</span>{/if}
 
 						<!-- File Upload -->
 						<FileUpload {superform} />

@@ -1,4 +1,4 @@
-export const MAX_FILE_SIZE = 5000000;
+export const MAX_FILE_SIZE = 10000000; // Increased to 10MB
 export const MAX_IMAGE_SIZE = 3000000;
 export const MAX_LENGTH_SUBCONTENT = 200;
 export const MAX_LENGTH_CONTENT = 100;

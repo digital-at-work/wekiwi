@@ -11,10 +11,7 @@
 	const dispatch = createEventDispatcher();
 
 	function closeModal() {
-		if (window.tinymce) {
-			window.tinymce.remove();
-			console.log('TinyMCE instances removed');
-		}
+		// Dispatch close event synchronously
 		dispatch('close');
 	}
 

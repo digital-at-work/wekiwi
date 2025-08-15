@@ -34,6 +34,7 @@
 	const dispatch = createEventDispatcher();
 
 	const superform = superForm<Infer<typeof contentCreateSchema>>(contentCreateForm, {
+		dataType: 'json',
 		invalidateAll: false,
 		validators: zodClient(contentCreateSchema),
 		onSubmit: async ({ formData }) => {
@@ -55,6 +56,29 @@
 	});
 
 	const { form, errors, enhance, delayed, allErrors, validate } = superform;
+
+	// Handle mentions data type conversion
+	let mentions: { id: number; username: string; }[] = [];
+	$: {
+		if (typeof $form.mentions === "string") {
+			try {
+				const parsed = JSON.parse($form.mentions);
+				if (Array.isArray(parsed)) {
+					mentions = parsed
+						.filter(item => item && typeof item === 'object' && 'id' in item && 'username' in item)
+						.map(item => ({ id: Number(item.id), username: String(item.username) }));
+				}
+			} catch {
+				mentions = [];
+			}
+		} else if (Array.isArray($form.mentions)) {
+			mentions = $form.mentions
+				.filter(item => item && typeof item === 'object' && 'id' in item && 'username' in item)
+				.map(item => ({ id: Number(item.id), username: String(item.username) }));
+		} else {
+			mentions = [];
+		}
+	}
 
 	$form.text = DEFAULT_EDITOR_TXT;
 	$form.circles = parent_circles as number[];
@@ -85,12 +109,12 @@
 						cssClasses="tinymce-wrapper *:rounded-lg *:min-h-24 *:border-solid *:border-2 p-2"
 						{circleUsers}
 						bind:htmlContent={$form.text}
-						bind:mentions={$form.mentions}
+						bind:mentions={mentions}
 						bind:readonly
 						on:input={() => validate('text')}
 					/>
 					<input type="hidden" name="text" bind:value={$form.text} />
-					<input type="hidden" name="mentions" bind:value={$form.mentions} />
+					<input type="hidden" name="mentions" bind:value={mentions} />
 					<input type="hidden" name="circles" bind:value={$form.circles} />
 				{:catch error}
 					<p class="text-error-500">{error.message}</p>
@@ -98,8 +122,7 @@
 			</div>
 
 			{#if $errors.text}<span class="text-error-500">{$errors.text}</span>{/if}
-			{#if $errors.mentions?._errors}<span class="text-error-500">{$errors.mentions?._errors}</span
-				>{/if}
+			{#if Array.isArray($errors.mentions) && $errors.mentions.length > 0}<span class="text-error-500">{$errors.mentions.join(", ")}</span>{/if}
 
 			<FileUpload {superform} />
 

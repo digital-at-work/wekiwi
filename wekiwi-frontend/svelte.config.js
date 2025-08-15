@@ -9,6 +9,15 @@ const config = {
 		adapter: adapter({
 			precompress: true
 		}),
+		csp: {
+			mode: 'auto',
+			directives: {
+				'script-src': ['self'],
+				'style-src': ['self', 'unsafe-inline'],
+				'connect-src': ['*'],
+				'frame-ancestors': ['none']
+			}
+		}
 	},
 	vitePlugin: {
 		// set to true for defaults or customize with object

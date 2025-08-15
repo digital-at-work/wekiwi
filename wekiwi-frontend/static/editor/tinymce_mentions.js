@@ -1,294 +1,566 @@
-// eslint-disable-next-line no-undef
 tinymce.PluginManager.add('mentionPlugin', function (editor) {
-	// Initialize the MutationObserver that will listen for mentions being deleted
+    let isProcessingChange = false;
 
-	editor.on('init', function () {
-		const observer = new MutationObserver((mutations) => {
-			mutations.forEach((mutation) => {
-				mutation.removedNodes.forEach((node) => {
-					// Check if the removed node is a mention span
-					if (node.nodeType === 1 && node.matches && node.matches('span[data-remind-mention]')) {
-						const mentionDetails = {
-							id: node.getAttribute('data-remind-mention'),
-							text: node.textContent
-						};
+    // Constants
+    const GUARD_CLASS = 'mention-guard';
+    const MENTION_HIGHLIGHT_CLASS = 'mention-highlight';
+    const ZERO_WIDTH_SPACE = '\u200B';
 
-						const mentionDeletedEvent = new CustomEvent('mentionDeleted', {
-							detail: mentionDetails,
-							bubbles: true,
-							cancelable: true
-						});
-			
-						editor.getElement().dispatchEvent(mentionDeletedEvent);
+    // Add editor styles for mentions
+    editor.on('init', function() {
+        const css = `
+            .mention.${MENTION_HIGHLIGHT_CLASS} {
+                background-color: #d3edff;
+                border: 1px solid #1890ff;
+                border-radius: 4px;
+                padding: 2px 4px;
+                text-decoration: none;
+                white-space: nowrap;
+            }
+            .${GUARD_CLASS} {
+                display: inline-block;
+                width: 0;
+                overflow: hidden;
+            }
+        `;
+        editor.dom.addStyle(css);
+    });
 
-						// Dispatch custom event or handle the deletion
-						console.log('Mention deleted:', mentionDetails);
-					}
-				});
-			});
-		});
-		// Start observing changes in the editor's body
-		observer.observe(editor.getBody(), { childList: true, subtree: true });
-
-		// Store observer for potential cleanup later
-		editor.mentionObserver = observer;
-	});
-
-	// Clean up observer when editor is removed
-    editor.on('remove', function() {
-        if (editor.mentionObserver) {
-            editor.mentionObserver.disconnect();
+    editor.on('keydown', (e) => {
+        if (e.key === '@') {
+            AutoComplete.getInstance(editor);
         }
     });
 
-	editor.on('keydown', (e) => {
-		if (e.key === '@' || (e.key === 'Process' && e.shiftKey && e.code === 'Digit2')) {
-			console.log('[MentionPlugin] Keydown event:', e);
-			AutoComplete.getInstance(editor);
-		}
-	});
+    // Function to find the associated mention for a guard node
+    function findMentionForGuard(guardNode) {
+        const prevSibling = guardNode.previousSibling;
+        if (prevSibling && prevSibling.classList && prevSibling.classList.contains('mention')) {
+            return prevSibling;
+        }
+        return null;
+    }
+
+    // Function to find the associated guard for a mention node
+    function findGuardForMention(mentionNode) {
+        const nextSibling = mentionNode.nextSibling;
+        if (nextSibling && nextSibling.classList && nextSibling.classList.contains(GUARD_CLASS)) {
+            return nextSibling;
+        }
+        return null;
+    }
+
+    // Function to create a guard node
+    function createGuardNode() {
+        const guard = editor.getDoc().createElement('span');
+        guard.className = GUARD_CLASS;
+        guard.contentEditable = 'false';
+        guard.innerHTML = ZERO_WIDTH_SPACE;
+        return guard;
+    }
+
+    // Function to create a mention node with its guard
+    function createMentionWithGuard(username) {
+        const wrapper = editor.getDoc().createDocumentFragment();
+        const mention = editor.getDoc().createElement('span');
+        mention.className = `mention ${MENTION_HIGHLIGHT_CLASS}`;
+        mention.contentEditable = 'false';
+        mention.setAttribute('data-username', username);
+        mention.textContent = `@${username}`;
+        
+        const guard = createGuardNode();
+        
+        wrapper.appendChild(mention);
+        wrapper.appendChild(guard);
+        return wrapper;
+    }
+
+    // Function to check if text matches a valid mention format
+    function isValidMention(text, username) {
+        return text === `@${username}`;
+    }
+
+    // Function to get user data from username
+    function getUserData(username) {
+        const mentionOptions = editor.getParam('mentionOptions', {});
+        const mentionsList = mentionOptions.mentionsList || [];
+        return mentionsList.find(user => user.username === username);
+    }
+
+    // Function to calculate cursor offset within a node
+    function getOffsetInNode(node, range) {
+        if (node === range.startContainer) {
+            return range.startOffset;
+        }
+        
+        let offset = 0;
+        let currentNode = node.firstChild;
+        
+        while (currentNode) {
+            if (currentNode === range.startContainer) {
+                return offset + range.startOffset;
+            }
+            offset += currentNode.textContent.length;
+            currentNode = currentNode.nextSibling;
+        }
+        
+        return offset;
+    }
+
+    // Function to handle mention deletion/conversion
+    function handleMentionInvalidation(mentionSpan) {
+        const username = mentionSpan.getAttribute('data-username');
+        if (!username) return;
+
+        const userData = getUserData(username);
+        if (!userData) return;
+
+        // Store current selection state
+        const selection = editor.selection;
+        const range = selection.getRng();
+        const isInMention = mentionSpan.contains(range.startContainer);
+        const offsetInMention = isInMention ? getOffsetInNode(mentionSpan, range) : 0;
+        
+        // Get reference nodes
+        const parentNode = mentionSpan.parentNode;
+        const guardNode = findGuardForMention(mentionSpan);
+        const nextSibling = guardNode ? guardNode.nextSibling : mentionSpan.nextSibling;
+
+        // Remove highlight class before firing event
+        mentionSpan.classList.remove(MENTION_HIGHLIGHT_CLASS);
+
+        // Fire the deletion event
+        editor.fire('mentionDeleted', {
+            detail: userData
+        });
+
+        // Convert to plain text
+        const textContent = mentionSpan.textContent;
+        const textNode = editor.getDoc().createTextNode(textContent);
+        
+        // Replace the mention span with text node
+        parentNode.replaceChild(textNode, mentionSpan);
+        
+        // Remove the guard if it exists
+        if (guardNode) {
+            guardNode.remove();
+        }
+
+        // Restore cursor position
+        const newRange = editor.getDoc().createRange();
+        
+        if (isInMention) {
+            // If cursor was inside the mention, place it at the same offset in the text node
+            newRange.setStart(textNode, Math.min(offsetInMention, textContent.length));
+            newRange.setEnd(textNode, Math.min(offsetInMention, textContent.length));
+        } else if (range.startContainer === parentNode) {
+            // If cursor was in the parent node
+            let newOffset = range.startOffset;
+            if (range.startOffset > Array.from(parentNode.childNodes).indexOf(textNode)) {
+                newOffset--; // Adjust for removed span
+            }
+            newRange.setStart(parentNode, newOffset);
+            newRange.setEnd(parentNode, newOffset);
+        } else if (nextSibling && range.startContainer === nextSibling) {
+            // If cursor was in the next sibling
+            newRange.setStart(range.startContainer, range.startOffset);
+            newRange.setEnd(range.endContainer, range.endOffset);
+        } else {
+            // Keep the original range for all other cases
+            newRange.setStart(range.startContainer, range.startOffset);
+            newRange.setEnd(range.endContainer, range.endOffset);
+        }
+
+        // Apply the new range
+        selection.setRng(newRange);
+    }
+
+    // Monitor changes to mention spans
+    editor.on('NodeChange', function(e) {
+        if (isProcessingChange) return;
+        isProcessingChange = true;
+
+        try {
+            const mentions = editor.getBody().getElementsByClassName('mention');
+            const range = editor.selection.getRng();
+            
+            // Validate range first
+            if (!range || !range.startContainer || !range.startContainer.nodeType) {
+                return;
+            }
+
+            // Collect mentions to remove in a separate pass
+            const mentionsToRemove = [];
+            
+            Array.from(mentions).forEach((mentionSpan) => {
+                // Safety check for mention span
+                if (!mentionSpan || !mentionSpan.parentNode || !editor.getBody().contains(mentionSpan)) {
+                    return;
+                }
+
+                const username = mentionSpan.getAttribute('data-username');
+                if (!username) return;
+
+                // Ensure mention has a guard
+                if (!findGuardForMention(mentionSpan)) {
+                    const guard = createGuardNode();
+                    if (mentionSpan.nextSibling) {
+                        mentionSpan.parentNode.insertBefore(guard, mentionSpan.nextSibling);
+                    } else {
+                        mentionSpan.parentNode.appendChild(guard);
+                    }
+                }
+
+                // Safely check if cursor is inside mention
+                let isCursorInsideMention = false;
+                try {
+                    isCursorInsideMention = mentionSpan.contains(range.startContainer);
+                } catch (err) {
+                    return;
+                }
+
+                // Only validate if cursor is inside the mention
+                if (isCursorInsideMention && !isValidMention(mentionSpan.textContent, username)) {
+                    mentionsToRemove.push(mentionSpan);
+                }
+            });
+
+            // Remove invalid mentions in a separate pass
+            mentionsToRemove.forEach(mentionSpan => {
+                if (mentionSpan && mentionSpan.parentNode) {
+                    handleMentionInvalidation(mentionSpan);
+                }
+            });
+        } catch (err) {
+        } finally {
+            isProcessingChange = false;
+        }
+    });
+
+    // Handle mention deletion via backspace/delete
+    editor.on('keydown', function(e) {
+        if (e.key === 'Backspace' || e.key === 'Delete') {
+            const selection = editor.selection;
+            const range = selection.getRng();
+            
+            // Safety check for range
+            if (!range || !range.startContainer || !range.startContainer.nodeType) {
+                return;
+            }
+            
+            // Get the element that's about to be deleted
+            let elementToDelete = null;
+            
+            try {
+                // Case 1: If selection is collapsed and at start of text node (for Backspace)
+                if (e.key === 'Backspace' && range.collapsed && range.startContainer.nodeType === 3 && range.startOffset === 0) {
+                    const prevSibling = range.startContainer.previousSibling;
+                    if (prevSibling && prevSibling.nodeType === 1) { // Element node
+                        if (prevSibling.classList.contains('mention')) {
+                            elementToDelete = prevSibling;
+                        } else if (prevSibling.classList.contains(GUARD_CLASS)) {
+                            elementToDelete = findMentionForGuard(prevSibling);
+                        }
+                    }
+                }
+                
+                // Case 2: If selection is collapsed and at end of text node (for Delete)
+                if (e.key === 'Delete' && range.collapsed && range.startContainer.nodeType === 3 && range.startOffset === range.startContainer.length) {
+                    const nextSibling = range.startContainer.nextSibling;
+                    if (nextSibling && nextSibling.nodeType === 1) { // Element node
+                        if (nextSibling.classList.contains('mention')) {
+                            elementToDelete = nextSibling;
+                        } else if (nextSibling.classList.contains(GUARD_CLASS)) {
+                            elementToDelete = findMentionForGuard(nextSibling);
+                        }
+                    }
+                }
+                
+                // Case 3: If cursor is inside or at boundaries of a mention or guard
+                const selectedNode = selection.getNode();
+                if (selectedNode && selectedNode.nodeType === 1) { // Element node
+                    if (selectedNode.classList.contains('mention')) {
+                        elementToDelete = selectedNode;
+                    } else if (selectedNode.classList.contains(GUARD_CLASS)) {
+                        elementToDelete = findMentionForGuard(selectedNode);
+                    }
+                }
+
+                // Case 4: If there's a selection range that includes a mention
+                if (!range.collapsed) {
+                    const mentions = editor.getBody().getElementsByClassName('mention');
+                    for (const mention of mentions) {
+                        try {
+                            if (range.intersectsNode(mention)) {
+                                elementToDelete = mention;
+                                break;
+                            }
+                        } catch (err) {
+                        }
+                    }
+                }
+
+                // If we found a mention to delete and it's still valid
+                if (elementToDelete && elementToDelete.parentNode && editor.getBody().contains(elementToDelete)) {
+                    handleMentionInvalidation(elementToDelete);
+                    e.preventDefault();
+                }
+            } catch (err) {
+            }
+        }
+    });
+
+    // Add guards to mentions when content is set
+    editor.on('SetContent', function() {
+        const mentions = editor.getBody().getElementsByClassName('mention');
+        Array.from(mentions).forEach(mention => {
+            mention.contentEditable = 'false';
+            mention.classList.add(MENTION_HIGHLIGHT_CLASS);
+            if (!findGuardForMention(mention)) {
+                const guard = createGuardNode();
+                if (mention.nextSibling) {
+                    mention.parentNode.insertBefore(guard, mention.nextSibling);
+                } else {
+                    mention.parentNode.appendChild(guard);
+                }
+            }
+        });
+    });
+
+    editor.on('remove', function () {
+        if (AutoComplete.instance) {
+            AutoComplete.instance.clear();
+        }
+    });
 });
 
 class AutoComplete {
-	static instance;
-	static isActive;
-	static editor;
-	static dropdown;
-	static mentionStartIndex;
-	id;
+    static instance = null;
 
-	constructor(editor) {
-		this.editor = editor;
-		this.id = Math.floor(Math.random() * 100000).toString();
+    constructor(editor) {
+        this.editor = editor;
+        this.dropdown = null;
+        this.mentionStartIndex = null;
+        this.boundHandleKeydown = this.handleKeydown.bind(this);
+        this.boundHandleKeyup = this.handleKeyup.bind(this);
+        this.boundHandleDocumentClick = this.handleDocumentClick.bind(this);
 
-		this.boundHandleKeydown = this.handleKeydown.bind(this);
-		this.boundHandleKeyup = this.handleKeyup.bind(this);
-		this.boundClearOnBlur = () => this.clear(true);
-		this.bindEvents();
+        this.bindEvents();
+    }
 
-		AutoComplete.instance = this;
-	}
+    static getInstance(editor) {
+        if (this.instance) {
+            this.instance.clear();
+        }
+        this.instance = new AutoComplete(editor);
+        return this.instance;
+    }
 
-	static getInstance(editor) {
-		if (!this.instance) {
-			console.log('[AutoComplete] Creating new instance');
-			this.instance = new AutoComplete(editor);
-		}
-		console.log('[AutoComplete] Returning existing instance', this.instance);
-		return this.instance;
-	}
+    bindEvents() {
+        this.editor.on('keydown', this.boundHandleKeydown);
+        this.editor.on('keyup', this.boundHandleKeyup);
+        document.addEventListener('click', this.boundHandleDocumentClick);
+    }
 
-	getId() {
-		return this.id;
-	}
+    unbindEvents() {
+        this.editor.off('keydown', this.boundHandleKeydown);
+        this.editor.off('keyup', this.boundHandleKeyup);
+        document.removeEventListener('click', this.boundHandleDocumentClick);
+    }
 
-	bindEvents() {
-		this.editor.on('keydown', this.boundHandleKeydown, true);
-		this.editor.on('keyup', this.boundHandleKeyup);
-		this.editor.on('blur', this.boundClearOnBlur);
-	}
+    handleDocumentClick(event) {
+        if (!this.dropdown) return;
+        if (!this.dropdown.contains(event.target)) {
+            this.clear();
+        }
+    }
 
-	unbindEvents() {
-		this.editor.off('keydown', this.boundHandleKeydown, true);
-		this.editor.off('keyup', this.boundHandleKeyup);
-		this.editor.off('blur', this.boundClearOnBlur);
-	}
+    handleKeydown(e) {
+        if (this.dropdown) {
+            if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+                e.preventDefault();
+                this.navigateDropdown(e.key === 'ArrowDown' ? 1 : -1);
+            } else if (e.key === 'Escape') {
+                this.clear();
+            }
+        }
+    }
 
-	calcCurrentPosition(range, filterList) {
-		const { x, y } = this.editor.editorContainer.getBoundingClientRect();
-		const { x: rangeX, y: rangeY } = range.getBoundingClientRect();
-		const [domWidth, domHeight] = [200, Math.min(40 * filterList.length + 16, 230)];
+    handleKeyup(e) {
+        if (e.key !== 'ArrowDown' && e.key !== 'ArrowUp' && e.key !== 'Enter' && e.key !== 'Escape') {
+            this.lookup();
+        }
+    }
 
-		let [top, left] = [y + rangeY + 20, x + rangeX + 10];
-		if (top + domHeight > window.innerHeight) top -= domHeight + 20;
-		if (left + domWidth > window.innerWidth) left -= domWidth;
+    lookup() {
+        const range = this.editor.selection.getRng();
+        const content = range.startContainer.textContent || '';
+        const atSymbolIndex = content.lastIndexOf('@');
+    
+        if (atSymbolIndex === -1) {
+            this.clear();
+            return;
+        }
+    
+        this.mentionStartIndex = atSymbolIndex;
+        const targetText = content.slice(atSymbolIndex + 1, range.endOffset).trim();
 
-		return { top, left };
-	}
+        const emailPattern = /^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+$/;
+        const fullText = content.slice(0, range.endOffset);
 
-	createListItem(user, idx) {
-		const li = document.createElement('li');
-		li.className = `oa-tinymce-mention-item ${idx === 0 ? 'oa-tinymce-mention-item-active' : ''}`;
-		li.dataset.idx = idx.toString();
-		li.dataset.username = user.username;
-		li.innerText = `${user.first_name || ''} ${user.last_name || ''} - ${user.username}`;
-		li.addEventListener('mousedown', () => this.selectActiveItem(li));
-		return li;
-	}
+        if (emailPattern.test(fullText)) {
+            this.clearDropdownOnly();
+            return;
+        }
 
-	updateDropdown(filterList, position) {
-		if (!this.dropdown) {
-			console.log('[AutoComplete] Creating dropdown');
-			this.dropdown = document.createElement('div');
-			this.dropdown.className = 'oa-tinymce-mention-container';
-			document.body.appendChild(this.dropdown);
-		}
+        const mentionOptions = this.editor.getParam('mentionOptions', {});
+        const mentionsList = mentionOptions.mentionsList || [];
+        const mentionsFilterOption = mentionOptions.mentionsFilterOption || (() => true);
 
-		this.dropdown.innerHTML = '';
-		this.dropdown.style.top = `${position.top}px`;
-		this.dropdown.style.left = `${position.left}px`;
+        const filteredList = mentionsList.filter((user) =>
+            mentionsFilterOption(targetText, user)
+        );
 
-		const ul = document.createElement('ul');
-		ul.className = 'oa-tinymce-mention-list';
-		ul.dataset.size = filterList.length.toString();
+        if (filteredList.length > 0) {
+            this.showDropdown(filteredList, range);
+        } else {
+            this.clearDropdownOnly();
+        }
+    }
 
-		filterList.forEach((item, idx) => ul.appendChild(this.createListItem(item, idx)));
+    clearDropdownOnly() {
+        if (this.dropdown) {
+            document.body.removeChild(this.dropdown);
+            this.dropdown = null;
+        }
+        this.unbindEvents();
+    }
 
-		this.dropdown.appendChild(ul);
-	}
+    showDropdown(users, range) {
+        if (!this.dropdown) {
+            this.dropdown = document.createElement('div');
+            this.dropdown.className = 'oa-tinymce-mention-container';
+            document.body.appendChild(this.dropdown);
+        }
 
-	selectActiveItem(active) {
-		const { username } = active.dataset;
+        this.dropdown.innerHTML = '';
+        this.positionDropdown(range);
 
-		if (this.mentionStartIndex != null && this.mentionStartIndex >= 0) {
-			const range = this.editor.selection.getRng();
-			range.setStart(range.startContainer, this.mentionStartIndex);
-			range.deleteContents();
+        users.forEach((user, idx) => {
+            const item = document.createElement('div');
+            item.className = 'oa-tinymce-mention-item' + (idx === 0 ? ' oa-tinymce-mention-item-active' : '');
+            item.dataset.username = user.username;
+            item.innerText = `${user.first_name} ${user.last_name} (@${user.username})`;
 
-			// Dispatch custom event
-			const mentionSelectedEvent = new CustomEvent('mentionSelected', {
-				detail: { id: this.id, username: username },
-				bubbles: true,
-				cancelable: true
-			});
+            item.addEventListener('mousedown', (event) => {
+                event.preventDefault();
+                this.selectItem(item);
+            });
 
-			this.editor.getElement().dispatchEvent(mentionSelectedEvent);
-			console.log('Mention selected:', { id: this.id, username });
+            this.dropdown.appendChild(item);
+        });
+    }
 
-			// Insert the mention
-			this.editor.execCommand(
-				'mceInsertContent',
-				false,
-				`<span data-remind-mention="${this.id}" contenteditable="false" style="color: #2f68b4;">&nbsp;@${username}&nbsp;</span>`
-			);
+    positionDropdown(range) {
+        const editorContainerRect = this.editor.getContainer().getBoundingClientRect();
+        const rangeRect = range.getBoundingClientRect();
 
-			this.clear(true);
-		}
-	}
+        this.dropdown.style.position = 'absolute';
+        this.dropdown.style.left = `${window.scrollX + editorContainerRect.left + rangeRect.left}px`;
+        this.dropdown.style.top = `${window.scrollY + editorContainerRect.top + rangeRect.bottom}px`;
+        this.dropdown.style.width = '200px';
+        this.dropdown.style.zIndex = '10000';
+    }
 
-	highlightItem(direction) {
-		if (!this.dropdown) return;
+    navigateDropdown(direction) {
+        const items = this.dropdown.querySelectorAll('.oa-tinymce-mention-item');
+        const activeItem = this.dropdown.querySelector('.oa-tinymce-mention-item-active');
+        let nextIdx = Array.from(items).indexOf(activeItem) + direction;
 
-		const ul = this.dropdown.querySelector('ul.oa-tinymce-mention-list');
-		const active = this.dropdown.querySelector('li.oa-tinymce-mention-item-active');
-		let nextIdx = active ? Number(active.dataset.idx) + direction : 0;
-		const size = Number(ul.dataset.size);
+        if (nextIdx < 0) nextIdx = items.length - 1;
+        if (nextIdx >= items.length) nextIdx = 0;
 
-		if (nextIdx < 0) nextIdx = size - 1;
-		if (nextIdx >= size) nextIdx = 0;
+        if (activeItem) activeItem.classList.remove('oa-tinymce-mention-item-active');
+        items[nextIdx].classList.add('oa-tinymce-mention-item-active');
+    }
 
-		if (active) active.classList.remove('oa-tinymce-mention-item-active');
-		ul.children[nextIdx].classList.add('oa-tinymce-mention-item-active');
-	}
+    selectItem(item) {
+        const username = item.dataset.username;
+        this.isMentionSelected = true;
 
-	handleKeydown(e) {
-		switch (e.key) {
-			case 'Enter':
-			case 'Escape':
-				e.preventDefault();
-				break;
-			case 'ArrowUp':
-			case 'ArrowDown':
-			case 'ArrowLeft':
-			case 'ArrowRight':
-				e.preventDefault();
-				if (e.key === 'ArrowUp') this.highlightItem(-1);
-				if (e.key === 'ArrowDown') this.highlightItem(1);
-				break;
-		}
-		console.log('handleKeydown');
-		e.stopPropagation();
-	}
+        const range = this.editor.selection.getRng();
+        const content = range.startContainer.textContent || '';
 
-	handleKeyup(e) {
-		if (['Shift', 'Control', 'Alt', 'ArrowUp', 'ArrowDown'].includes(e.key)) {
-			e.preventDefault();
-		} else if (['ArrowLeft', 'ArrowRight'].includes(e.key)) {
-			this.hide();
-			//e.preventDefault();
-		} else if (e.key === 'Enter') {
-			const active = this.dropdown?.querySelector('li.oa-tinymce-mention-item-active');
-			active ? this.selectActiveItem(active) : this.clear();
-		} else if (e.key === 'Escape') {
-			this.clear();
-		} else if (e.key === 'Delete') {
-			console.log('delete');
-		} else {
-			console.log('lookup');
-			this.lookup();
-		}
-	}
+        if (this.mentionStartIndex !== null && this.mentionStartIndex >= 0) {
+            const beforeMention = content.slice(0, this.mentionStartIndex);
+            const afterCursor = content.slice(range.endOffset);
 
-	lookup() {
-		// Access the range and content with minimal operations
-		const range = this.editor.selection.getRng();
-		const content = range.startContainer.textContent || '';
-		const endOffset = range.endOffset;
-		const lastAtIndex = content.lastIndexOf('@', endOffset);
+            const emailPattern = /^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+$/;
+            if (emailPattern.test(beforeMention.trimEnd())) {
+                this.clear();
+                return;
+            }
 
-		// Directly slice the target text
-		const targetText = content.slice(lastAtIndex + 1, endOffset).replace('\ufeff', '');
+            const mentionHTML = `<span contenteditable="false" class="mention mention-highlight" data-username="${username}">@${username}</span>&nbsp;`;
 
-		// Return early if no '@' found
-		if (lastAtIndex === -1) {
-			this.hide();
-			return;
-		}
+            const updatedContent = beforeMention + mentionHTML + afterCursor;
+            range.startContainer.textContent = '';
+            this.editor.selection.setContent(updatedContent);
 
-		if (lastAtIndex >= 0) {
-			this.mentionStartIndex = lastAtIndex;
-		}
+            // Get the user data from mentionOptions
+            const mentionOptions = this.editor.getParam('mentionOptions', {});
+            const mentionsList = mentionOptions.mentionsList || [];
+            const userData = mentionsList.find(user => user.username === username);
 
-		const { mentionsList, mentionsFilterOption } = this.editor.getParam('mentionOptions');
-		const filterList = mentionsList.filter((i) =>
-			mentionsFilterOption(targetText, i)
-		);
+            if (userData) {
+                // Dispatch mention selected event with full user data
+                this.editor.fire('mentionSelected', {
+                    detail: userData
+                });
+            }
 
-		// Show or hide based on the target text and filter list
-		if (targetText && filterList.length > 0) {
-			this.show(filterList, range);
-			this.isActive = true;
-		} else {
-			this.hide();
-		}
-	}
+            try {
+                // Set cursor position after the mention
+                const newRange = this.editor.selection.getRng();
+                const spans = this.editor.getBody().getElementsByClassName('mention');
+                const lastSpan = spans[spans.length - 1];
+                if (lastSpan && lastSpan.nextSibling) {
+                    newRange.setStartAfter(lastSpan);
+                    newRange.collapse(true);
+                    this.editor.selection.setRng(newRange);
+                }
+            } catch (err) {
+            }
+        }
 
-	show(filterList, range) {
-		const position = this.calcCurrentPosition(range, filterList);
-		this.updateDropdown(filterList, position);
-	}
+        this.clear();
+    }
+    
+    clear() {
+        if (this.dropdown) {
+            document.body.removeChild(this.dropdown);
+            this.dropdown = null;
+        }
 
-	getDomValue(el) {
-		return Array.from(el.childNodes)
-			.map((child) =>
-				child.nodeName === '#text'
-					? child.nodeValue
-					: child.nodeName === 'SPAN'
-					? this.getDomValue(child)
-					: ''
-			)
-			.join('');
-	}
+        if (!this.isMentionSelected && this.mentionStartIndex !== null && this.mentionStartIndex >= 0) {
+            const range = this.editor.selection.getRng();
+            const content = range.startContainer.textContent || '';
 
-	clear(async = false) {
-		if (async) {
-			Promise.resolve().then(() => {
-				this.unbindEvents();
-				if (this.dropdown) document.body.removeChild(this.dropdown);
-				this.dropdown = null;
-			});
-		} else {
-			this.unbindEvents();
-			if (this.dropdown) document.body.removeChild(this.dropdown);
-			this.dropdown = null;
-		}
-		AutoComplete.instance = undefined;
-	}
+            if (content) {
+                const updatedContent =
+                    content.slice(0, this.mentionStartIndex) + content.slice(this.mentionStartIndex + 1);
 
-	hide() {
-		if (this.dropdown && document.body.contains(this.dropdown)) {
-			document.body.removeChild(this.dropdown);
-			this.dropdown = null;
-		}
-	}
+                range.startContainer.textContent = updatedContent;
+
+                try {
+                    this.editor.selection.setCursorLocation(range.startContainer, this.mentionStartIndex);
+                } catch (err) {
+                }
+            }
+        }
+
+        this.unbindEvents();
+        this.isMentionSelected = false;
+        AutoComplete.instance = null;
+    }
 }

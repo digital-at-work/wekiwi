@@ -29,19 +29,19 @@ export const userSchema = z.object({
         .trim(),
     password: z
         .string({ required_error: 'Passwort ist erforderlich.' })
-        .min(8, { message: 'Passwort muss mindestens 8 Zeichen lang sein.' })
-        .regex(/^(?=.*\d)(?=.*[a-z])(?=.*[A-Z])(?=.*[\W_]).{8,}$/, {
+        .min(10, { message: 'Passwort muss mindestens 10 Zeichen lang sein.' })
+        .regex(/^(?=.*\d)(?=.*[a-z])(?=.*[A-Z])(?=.*[\W_]).{10,}$/, {
             message: 'Passwort muss mindestens einen Großbuchstaben, einen Kleinbuchstaben, eine Zahl und ein Sonderzeichen enthalten.',
         })
         .trim(),
-    confirmPassword: z //TODO: reuse password schema
+    confirmPassword: z
         .string({ required_error: 'Passwort ist erforderlich.' })
-        .min(8, { message: 'Passwort muss mindestens 8 Zeichen lang sein.' })
-        .regex(/^(?=.*\d)(?=.*[a-z])(?=.*[A-Z])(?=.*[\W_]).{8,}$/, {
+        .min(10, { message: 'Passwort muss mindestens 10 Zeichen lang sein.' })
+        .regex(/^(?=.*\d)(?=.*[a-z])(?=.*[A-Z])(?=.*[\W_]).{10,}$/, {
             message: 'Passwort muss mindestens einen Großbuchstaben, einen Kleinbuchstaben, eine Zahl und ein Sonderzeichen enthalten.',
         })
         .trim(),
-    terms: z.boolean({ required_error: 'Sie müssen die Nutzungsbedingungen und Datenschutzbestimmungen akzeptieren.' }),
+    terms: z.boolean({ required_error: 'Sie müssen die Auftragsverarbeitungsvereinbarung und Datenschutzbestimmungen akzeptieren.' }),
     role: z
         .enum(['USER', 'PREMIUM', 'ADMIN'], { required_error: 'Sie müssen eine Rolle haben.' })
         .default('USER'),
@@ -146,11 +146,15 @@ export const contentSchema = z.object({
         .string().regex(new RegExp(/^[\s\S]*?(\S+\s+){1}\S+[\s\S]*$/), { message: 'Der Titel muss aus mindestens 2 Wörtern bestehen.' }).optional(),
     text: z
         .string().regex(new RegExp(/^[\s\S]*?(\S+\s+){2}\S+[\s\S]*$/), { message: 'Der Inhalt muss aus mindestens 3 Wörtern bestehen.' }),
-    mentions: z
-        .array(z.object({
-            id: z.number(),
-            username: z.string()
-        }).optional()).optional(),
+    mentions: z.union([
+        z.string(),  // For form submission as JSON string
+        z.array(z.object({
+            id: z.number().optional(),  // Make id optional since it might not be present
+            username: z.string(),
+            first_name: z.string().optional(),
+            last_name: z.string().optional()
+        }))
+    ]).optional().default([]),
 });
 
 export const contentCreateSchema = contentSchema.pick({
@@ -160,12 +164,13 @@ export const contentCreateSchema = contentSchema.pick({
 }).extend({
     files: z
         .instanceof(File, { message: 'Bitte lade eine Datei hoch.' })
-        .refine((f) => f.size <= MAX_FILE_SIZE, `Die maximale Dateigröße ist 5MB.`)
+        .refine((f) => f.size <= MAX_FILE_SIZE, `Die maximale Dateigröße ist 10MB.`) // Updated message
         .refine(
             (f) => ACCEPTED_FILE_TYPES.includes(f.type),
             "Nur die Dateiformate .jpg, .jpeg, .png und .pdf werden unterstützt."
         ).array(),
-    circles: z.number().array().min(1, { message: 'Bitte wähle mindestens einen "Circle" aus.' }).max(5, { message: 'Du kannst maximal 5 "Circle" auswählen.' })
+    circles: z.number().array().min(1, { message: 'Bitte wähle mindestens einen "Circle" aus.' }).max(5, { message: 'Du kannst maximal 5 "Circle" auswählen.' }),
+    to_be_parsed_by_directus_flow: z.boolean().optional().default(false)
 });
 
 export const contentEditSchema = contentCreateSchema.pick({
@@ -176,7 +181,7 @@ export const contentEditSchema = contentCreateSchema.pick({
     circles: true
 }).extend({
     // include child_ids and their attachment_ids (in case circles changed)
-    child_ids: z.array(z.object({ content_id: z.number(), attachment_ids: z.array(z.number()) })).optional()
+    child_ids: z.array(z.object({ content_id: z.number(), attachment_ids: z.array(z.number())})).optional()
 });
 
 export const recipientSchema = z.union([z.string().email(), z.string()]);
@@ -194,4 +199,3 @@ export const contentShareSchema = z
         data => (data.emails && data.emails.length > 0) || (data.usernames && data.usernames.length > 0),
         'Bitte gebe mindestens eine Email oder einen Usernamen ein.',
     );
-
